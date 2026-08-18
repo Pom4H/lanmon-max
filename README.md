@@ -56,6 +56,6 @@ All portable code is compiled with:
 
 ## CI
 
-GitHub Actions runs all three suites on `ubuntu-latest` for pushes to `main` and pull requests.
+GitHub Actions runs all three suites on `ubuntu-latest` for pushes to `main`, pull requests, and manual `workflow_dispatch` runs.
 
 The Indy/VCL transport itself is intentionally not compiled in Linux CI because it requires the C++Builder/Indy toolchain; everything above that boundary is executable and covered by the harnesses.
