@@ -1,6 +1,13 @@
 #include "maxclient.h"
 #include <sstream>
 
+static std::string BuildAttachmentMessageBody(const std::string & text, const std::string & type, const std::string & token)
+{
+    return std::string("{\"text\":\"") + MaxJsonEscape(text) +
+           "\",\"attachments\":[{\"type\":\"" + MaxJsonEscape(type) +
+           "\",\"payload\":{\"token\":\"" + MaxJsonEscape(token) + "\"}}]}";
+}
+
 MAX_HTTP_RESPONSE IMaxHttpTransport::PostMultipartFile(const std::string &,
     const std::map<std::string,std::string> &, const std::string &, const std::string &)
 {
@@ -66,13 +73,14 @@ bool MAX_API_CLIENT::SendMessage(const MAX_PEER & peer, const std::string & utf8
     return CheckResponse(r,error);
 }
 
-bool MAX_API_CLIENT::SendImage(const MAX_PEER & peer, const std::string & filename,
-                               const std::string & utf8Caption, std::string & error)
+bool MAX_API_CLIENT::SendUploadedAttachment(const MAX_PEER & peer, const std::string & filename,
+                               const std::string & utf8Caption, const std::string & uploadType,
+                               const std::string & attachmentType, std::string & error)
 {
     if(!Transport) { error="MAX transport is null"; return false; }
 
     MAX_HTTP_RESPONSE prepare=Transport->Post(
-        WithBaseUrl("https://platform-api2.max.ru/uploads?type=image"),Headers(false),"");
+        WithBaseUrl(std::string("https://platform-api2.max.ru/uploads?type=")+uploadType),Headers(false),"");
     if(!CheckResponse(prepare,error)) return false;
 
     std::string uploadUrl;
@@ -87,6 +95,18 @@ bool MAX_API_CLIENT::SendImage(const MAX_PEER & peer, const std::string & filena
 
     MAX_HTTP_RESPONSE sent=Transport->Post(
         WithBaseUrl(MaxBuildSendMessageUrl(peer)),Headers(true),
-        MaxBuildImageMessageBody(utf8Caption,token));
+        BuildAttachmentMessageBody(utf8Caption,attachmentType,token));
     return CheckResponse(sent,error);
+}
+
+bool MAX_API_CLIENT::SendImage(const MAX_PEER & peer, const std::string & filename,
+                               const std::string & utf8Caption, std::string & error)
+{
+    return SendUploadedAttachment(peer,filename,utf8Caption,"image","image",error);
+}
+
+bool MAX_API_CLIENT::SendFile(const MAX_PEER & peer, const std::string & filename,
+                              const std::string & utf8Caption, std::string & error)
+{
+    return SendUploadedAttachment(peer,filename,utf8Caption,"file","file",error);
 }

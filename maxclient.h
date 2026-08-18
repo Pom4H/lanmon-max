@@ -43,6 +43,7 @@ public:
     bool Poll(MAX_UPDATES & updates, std::string & error, int timeoutSeconds=30, int limit=100);
     bool SendMessage(const MAX_PEER & peer, const std::string & utf8Text, std::string & error);
     bool SendImage(const MAX_PEER & peer, const std::string & filename, const std::string & utf8Caption, std::string & error);
+    bool SendFile(const MAX_PEER & peer, const std::string & filename, const std::string & utf8Caption, std::string & error);
     bool MarkerValid() const { return HasMarker; }
     max_int64 CurrentMarker() const { return Marker; }
     void ResetMarker() { HasMarker=false; Marker=0; }
@@ -51,6 +52,8 @@ private:
     std::string WithBaseUrl(const std::string & url) const;
     std::map<std::string,std::string> Headers(bool json) const;
     bool CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & error) const;
+    bool SendUploadedAttachment(const MAX_PEER & peer, const std::string & filename, const std::string & utf8Caption,
+                                const std::string & uploadType, const std::string & attachmentType, std::string & error);
 };
 
 #endif

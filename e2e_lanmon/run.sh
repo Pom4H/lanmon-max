@@ -7,7 +7,8 @@ LOG="mock_lanmon_max_server.log"
 CXX="${CXX:-g++}"
 
 $CXX -std=gnu++98 -Wall -Wextra -Werror \
-  ../maxcore.cpp ../maxclient.cpp ../lanmon_commands.cpp \
+  ../maxcore.cpp ../maxclient.cpp ../maxusers.cpp ../maxsettings.cpp \
+  ../lanmon_commands.cpp ../lanmon_bot.cpp \
   ../e2e/posix_http_transport.cpp lanmon_e2e_harness.cpp \
   -o lanmon_e2e_harness
 

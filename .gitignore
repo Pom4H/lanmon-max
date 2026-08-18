@@ -1,5 +1,6 @@
 tests/test_maxcore
 tests/test_maxclient
+tests/test_parity
 e2e/max_e2e_harness
 e2e/mock_max_server.log
 e2e_lanmon/lanmon_e2e_harness
