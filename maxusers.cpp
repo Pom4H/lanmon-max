@@ -2,7 +2,7 @@
 #include <sstream>
 
 MAX_USER::MAX_USER()
-    : Id(0), IsBot(false), InCount(0), OutCount(0), Tag(0)
+    : Id(0), PeerType(maxPeerUser), IsBot(false), InCount(0), OutCount(0), Tag(0)
 {
 }
 
