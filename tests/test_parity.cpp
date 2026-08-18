@@ -33,19 +33,18 @@ static int F=0;
 static MAX_MESSAGE M(const std::string&t){MAX_MESSAGE m;m.ChatId=777;m.UserId=42;m.Text=t;m.UpdateTimestamp=99;return m;}
 int main(){
  MockTransport tr; MAX_API_CLIENT api(&tr,"t"); Actions a; Events ev; LANMON_MAX_BOT bot(&api,&a,&ev); std::string e;
- MAX_USER u;u.Id=777;u.Name="Operator";u.Alias="ABCD";bot.UserList.Add(u);
+ MAX_USER u;u.Id=777;u.PeerType=maxPeerChat;u.Name="Operator chat";u.Alias="ABCD";bot.UserList.Add(u);
  C(bot.UserList.Get(0)->HasValidAlias(""));C(bot.UserList.Get(0)->HasValidAlias("*"));C(bot.UserList.Get(0)->HasValidAlias("A!!D"));C(!bot.UserList.Get(0)->HasValidAlias("A!!X"));
  bot.Settings.RequestAlias="A!!D";bot.Settings.AlarmAlias="A!!!";bot.Settings.FlagSendMaps=true;
  std::vector<std::string> cmds;cmds.push_back("STOP");cmds.push_back("MAP 2");cmds.push_back("SCREEN 1");cmds.push_back("SCREEN");cmds.push_back("LOG");cmds.push_back("LOGXLS");cmds.push_back("ALARM");cmds.push_back("HELP");cmds.push_back("стоп");cmds.push_back("карта 3");cmds.push_back("экран 1");cmds.push_back("журнал");cmds.push_back("тревоги");
  for(size_t i=0;i<cmds.size();++i){MAX_UPDATES up;up.Messages.push_back(M(cmds[i]));C(bot.OnMessages(up,e));}
- C(ev.messages==(int)cmds.size()); C(a.stop==2); C(a.map==2); C(a.monitor==3); C(a.desktop==1); C(a.html==2); C(a.xls==1); C(a.pdf==2);
- C(bot.UserMessageCount==cmds.size()); C(bot.UserList.Get(0)->InCount==cmds.size());
+ C(ev.messages==(int)cmds.size());C(a.stop==2);C(a.map==2);C(a.monitor==3);C(a.desktop==1);C(a.html==2);C(a.xls==1);C(a.pdf==2);
+ C(bot.UserMessageCount==cmds.size());C(bot.UserList.Get(0)->InCount==cmds.size());
  bot.Settings.RequestAlias="NO";MAX_UPDATES unauth;unauth.Messages.push_back(M("STOP"));C(bot.OnMessages(unauth,e));C(ev.messages==(int)cmds.size()+1);C(a.stop==2);
- bot.Settings.RequestAlias="";bot.Settings.FlagSendMaps=false;MAX_UPDATES gated;gated.Messages.push_back(M("STOP"));C(bot.OnMessages(gated,e));C(a.stop==2);
- bot.Settings.FlagSendMaps=true;
- C(bot.OnNewAlarmState("ALARM!",e)); C(bot.UserList.Get(0)->OutCount>0);
+ bot.Settings.RequestAlias="";bot.Settings.FlagSendMaps=false;MAX_UPDATES gated;gated.Messages.push_back(M("STOP"));C(bot.OnMessages(gated,e));C(a.stop==2);bot.Settings.FlagSendMaps=true;
+ size_t alarmBefore=tr.Calls.size();C(bot.OnNewAlarmState("ALARM!",e));C(bot.UserList.Get(0)->OutCount>0);bool alarmChat=false;for(size_t i=alarmBefore;i<tr.Calls.size();++i)if(tr.Calls[i].Url.find("chat_id=777")!=std::string::npos)alarmChat=true;C(alarmChat);
  C(bot.UserCanAsk(0));C(bot.UserRcvAlarms(0));C(bot.UserHasValidAlias(0,"A!!D"));C(bot.SetUserTag(0,7));C(bot.GetUser(0)->Tag==7);C(bot.FindUser(777)!=0);C(bot.FindUserIndex(777)==0);C(bot.FindUserAlias("ABCD")!=0);
- size_t before=tr.Calls.size();C(bot.SendDocByAlias("123","/tmp/alarm.pdf","doc",e));bool sawFile=false;for(size_t i=before;i<tr.Calls.size();++i)if(tr.Calls[i].Url.find("/uploads?type=file")!=std::string::npos)sawFile=true;C(sawFile);
- const char*ini="/tmp/lanmon_max_parity.ini";bot.Settings.BotToken="secret";C(bot.Save(ini,e));MAX_BOT_SETTINGS s2;MAX_USER_LIST u2;C(MaxLoadIni(ini,s2,u2,e));C(s2.BotToken=="secret");C(s2.RequestAlias==bot.Settings.RequestAlias);C(u2.Count()==1);C(u2.Get(0)->Tag==7);std::remove(ini);
+ size_t before=tr.Calls.size();C(bot.SendDocByAlias("123","/tmp/alarm.pdf","doc",e));bool sawFile=false,sawUser=false;for(size_t i=before;i<tr.Calls.size();++i){if(tr.Calls[i].Url.find("/uploads?type=file")!=std::string::npos)sawFile=true;if(tr.Calls[i].Url.find("user_id=123")!=std::string::npos)sawUser=true;}C(sawFile);C(sawUser);
+ const char*ini="/tmp/lanmon_max_parity.ini";bot.Settings.BotToken="secret";C(bot.Save(ini,e));MAX_BOT_SETTINGS s2;MAX_USER_LIST u2;C(MaxLoadIni(ini,s2,u2,e));C(s2.BotToken=="secret");C(s2.RequestAlias==bot.Settings.RequestAlias);C(u2.Count()==1);C(u2.Get(0)->Tag==7);C(u2.Get(0)->PeerType==maxPeerChat);std::remove(ini);
  std::cout<<(F?"parity tests FAILED":"All Telegram parity tests passed")<<"\n";return F?1:0;
 }
