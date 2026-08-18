@@ -8,6 +8,7 @@
 struct MAX_USER
 {
     max_int64 Id;
+    MAX_PEER_TYPE PeerType;
     std::string Name;
     std::string Alias;
     std::string Comment;
@@ -19,6 +20,7 @@ struct MAX_USER
     MAX_USER();
     bool Valid() const { return Id!=0; }
     bool HasValidAlias(const std::string & aliasMask) const;
+    MAX_PEER Peer() const { return MAX_PEER(PeerType,Id); }
 };
 
 class MAX_USER_LIST
