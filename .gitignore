@@ -1,0 +1,7 @@
+tests/test_maxcore
+tests/test_maxclient
+e2e/max_e2e_harness
+e2e/mock_max_server.log
+e2e_lanmon/lanmon_e2e_harness
+e2e_lanmon/mock_lanmon_max_server.log
+*.o
