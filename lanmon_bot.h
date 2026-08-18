@@ -20,13 +20,27 @@ public:
 
 class LANMON_MAX_BOT
 {
+    enum SEND_KIND
+    {
+        sendText,
+        sendPhoto,
+        sendDoc
+    };
+
     MAX_API_CLIENT *Api;
-    ILanMonCommandActions *Actions;
     ILanMonMaxEvents *Events;
     LANMON_MAX_COMMAND_ROUTER Router;
 
     MAX_PEER PeerFromId(max_int64 id) const { return MAX_PEER(maxPeerUser,id); }
-    MAX_PEER PeerForMessage(const MAX_MESSAGE & msg) const;
+    bool SendToPeer(const MAX_PEER & peer, SEND_KIND kind,
+                    const std::string & payload, const std::string & caption,
+                    std::string & error);
+    bool SendToUser(MAX_USER * user, SEND_KIND kind,
+                    const std::string & payload, const std::string & caption,
+                    std::string & error);
+    bool SendByAlias(const std::string & alias, SEND_KIND kind,
+                     const std::string & payload, const std::string & caption,
+                     std::string & error);
     void Error(const std::string & s);
     void Debug(const std::string & s);
 public:

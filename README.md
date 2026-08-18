@@ -1,55 +1,55 @@
-# LanMon MAX adapter
+# Адаптер MAX для LanMon
 
-Portable C++98 MAX Bot API adapter for the legacy LanMon C++Builder application.
+Портируемый адаптер MAX Bot API на C++98 для старого приложения LanMon на C++Builder.
 
-The portable layer is executable in Linux CI; `maxindy.*` is the thin production transport for C++Builder/Indy. The code intentionally preserves the behavior of the existing `TELEGRAM_BOT`, including alias masks, counters, alarm fan-out, command authorization and the historical `FlagSendMaps` semantics.
+Портируемый слой полностью запускается в Linux CI. Файлы `maxindy.*` — тонкий production-транспорт для C++Builder/Indy. Код намеренно сохраняет поведение существующего `TELEGRAM_BOT`: маски алиасов, счётчики, рассылку аварий, авторизацию команд и историческую семантику `FlagSendMaps`.
 
-## Telegram feature parity
+## Функциональный паритет с Telegram
 
-| Telegram capability | MAX implementation |
+| Возможность Telegram | Реализация в MAX |
 |---|---|
 | `GetMe` | `MAX_API_CLIENT::GetMe` / `LANMON_MAX_BOT::GetMe` |
-| polling / update cursor | `Poll`, persistent `marker` |
-| text | `SendMessage` |
-| photo | `SendPhoto` → MAX `image` upload |
-| document | `SendDoc` → MAX `file` upload |
-| `SCREEN`, `ЭКРАН` | monitor screenshot + desktop fallback |
-| `MAP`, `КАРТА` | map image |
-| `STOP`, `СТОП` | close alarm window + acknowledgement |
-| `LOG`, `ЖУРНАЛ` | HTML export + file send |
-| `LOGXLS` | XLS export + file send |
-| `ALARM`, `ТРЕВОГИ` | PDF export + file send |
-| `HELP`, `?` | full Telegram-equivalent help |
-| user list | `MAX_USER_LIST` |
-| alias masks (`!`, `*`, empty) | same rules as `TgUser::HasValidAlias` |
-| `RequestAlias` authorization | preserved |
-| `AlarmAlias` fan-out | `OnNewAlarmState` |
-| numeric alias fallback | preserved |
-| `InCount`, `OutCount`, `Tag` | preserved |
-| INI settings/users | `MaxLoadIni` / `MaxSaveIni` |
-| script message callback | `ILanMonMaxEvents::OnMaxMessage` |
-| Telegram FastScript user helpers | equivalent methods on `LANMON_MAX_BOT` |
+| polling / курсор обновлений | `Poll`, сохраняемый `marker` |
+| текст | `SendMessage` |
+| фото | `SendPhoto` → загрузка MAX `image` |
+| документ | `SendDoc` → загрузка MAX `file` |
+| `SCREEN`, `ЭКРАН` | снимок монитора + fallback на весь desktop |
+| `MAP`, `КАРТА` | изображение карты |
+| `STOP`, `СТОП` | закрытие окна аварий + подтверждение |
+| `LOG`, `ЖУРНАЛ` | экспорт HTML + отправка файла |
+| `LOGXLS` | экспорт XLS + отправка файла |
+| `ALARM`, `ТРЕВОГИ` | экспорт истории тревог в PDF |
+| `HELP`, `?` | полная помощь, эквивалентная Telegram |
+| список пользователей | `MAX_USER_LIST` |
+| маски алиасов (`!`, `*`, пустая) | те же правила, что в `TgUser::HasValidAlias` |
+| авторизация `RequestAlias` | сохранена |
+| рассылка по `AlarmAlias` | `OnNewAlarmState` |
+| numeric alias fallback | сохранён |
+| `InCount`, `OutCount`, `Tag` | сохранены |
+| настройки и пользователи в INI | `MaxLoadIni` / `MaxSaveIni` |
+| callback входящего сообщения | `ILanMonMaxEvents::OnMaxMessage` |
+| FastScript helpers Telegram | эквивалентные методы `LANMON_MAX_BOT` |
 | debug/error/getMe/read callbacks | `ILanMonMaxEvents` |
-| active / periodic-pause settings | `MAX_BOT_SETTINGS` |
+| active / periodic pause | `MAX_BOT_SETTINGS` |
 
-### Compatibility detail: `FlagSendMaps`
+### Важная совместимость: `FlagSendMaps`
 
-The old Telegram code checks `FlagSendMaps` before **all** built-in commands, not only `MAP`. MAX intentionally preserves that behavior. `OnMaxMessage` is fired before the gate, exactly like `OnTgMessage` in Telegram.
+Старый Telegram-код проверяет `FlagSendMaps` перед **всеми** встроенными командами, а не только перед `MAP`. MAX намеренно сохраняет это поведение. `OnMaxMessage` вызывается до этой проверки — так же, как `OnTgMessage` в Telegram.
 
-## Layout
+## Структура
 
-- `maxcore.*` — C++98 JSON parser, MAX DTOs, URL/body builders, CP1251 → UTF-8.
-- `maxclient.*` — transport-independent MAX API client.
-- `maxindy.*` — C++Builder/Indy HTTPS transport.
-- `maxusers.*` — users, aliases, counters and tags.
-- `maxsettings.*` — INI persistence.
-- `lanmon_commands.*` — all built-in Telegram-equivalent LanMon commands.
-- `lanmon_bot.*` — Telegram-compatible behavior facade.
-- `tests/` — protocol/client/parity tests.
-- `e2e/` — real local TCP/HTTP MAX mock.
-- `e2e_lanmon/` — full MAX → LanMon → MAX parity E2E.
+- `maxcore.*` — C++98 JSON parser, DTO MAX, построение URL/body, преобразование CP1251 → UTF-8.
+- `maxclient.*` — независимый от транспорта клиент MAX API.
+- `maxindy.*` — HTTPS-транспорт C++Builder/Indy.
+- `maxusers.*` — пользователи, алиасы, счётчики и теги.
+- `maxsettings.*` — сохранение/загрузка INI.
+- `lanmon_commands.*` — все встроенные команды LanMon, эквивалентные Telegram.
+- `lanmon_bot.*` — фасад поведения, совместимого с Telegram.
+- `tests/` — protocol/client/parity тесты.
+- `e2e/` — настоящий локальный TCP/HTTP mock MAX.
+- `e2e_lanmon/` — полный E2E `MAX → LanMon → MAX`.
 
-## Tests
+## Тесты
 
 ```bash
 ./tests/run.sh
@@ -57,37 +57,37 @@ The old Telegram code checks `FlagSendMaps` before **all** built-in commands, no
 ./e2e_lanmon/run.sh
 ```
 
-CI compiles portable production code with:
+CI компилирует портируемый production-код строго с:
 
 ```text
 -std=gnu++98 -Wall -Wextra -Werror
 ```
 
-The full parity E2E executes:
+Полный parity E2E выполняет:
 
 ```text
 MAX /updates
   → STOP
   → MAP 2
   → SCREEN 1
-  → SCREEN (desktop fallback)
+  → SCREEN (fallback на desktop)
   → LOG
   → LOGXLS
   → ALARM
   → HELP
-  → alarm alias broadcast
+  → рассылка аварии по alias
   → MAX /messages + image/file uploads
 ```
 
-See `PARITY.md` for the source-of-truth checklist.
+Полный checklist находится в `PARITY.md`.
 
 ---
 
-# Integration into LanMon
+# Интеграция в LanMon
 
-## 1. Add files to the C++Builder project
+## 1. Добавить файлы в проект C++Builder
 
-Copy these into a `Max/` directory and add the `.cpp` files to `lanmon4.cbproj`:
+Скопировать файлы в каталог `Max/` и добавить `.cpp` в `lanmon4.cbproj`:
 
 ```text
 maxcore.cpp/.h
@@ -99,11 +99,11 @@ lanmon_commands.cpp/.h
 lanmon_bot.cpp/.h
 ```
 
-Only `maxindy.*` depends on Indy/VCL. Keep screenshots, log export and alarm PDF generation in LanMon itself through `ILanMonCommandActions`.
+Только `maxindy.*` зависит от Indy/VCL. Создание скриншотов, экспорт журнала и PDF тревог должно остаться внутри LanMon через `ILanMonCommandActions`.
 
-## 2. Implement the LanMon action bridge
+## 2. Реализовать мост к действиям LanMon
 
-Create a class derived from `ILanMonCommandActions` and connect it to existing functions:
+Создать класс от `ILanMonCommandActions` и подключить существующие функции LanMon:
 
 ```cpp
 class TLanMonMaxActions : public ILanMonCommandActions
@@ -175,11 +175,11 @@ public:
 };
 ```
 
-`SCREEN` behavior matches Telegram: first try `GetMonitorScreenshot(screenindex-1)`, then fall back to `DesktopScreenshot`.
+Поведение `SCREEN` повторяет Telegram: сначала вызывается `GetMonitorScreenshot(screenindex-1)`, при неудаче выполняется fallback на `DesktopScreenshot`.
 
-## 3. Create global objects
+## 3. Создать глобальные объекты
 
-Near the existing `TgBot` setup:
+Рядом с текущей инициализацией `TgBot`:
 
 ```cpp
 TMaxIndyTransport *MaxTransport=NULL;
@@ -188,7 +188,7 @@ TLanMonMaxActions *MaxActions=NULL;
 LANMON_MAX_BOT *MaxBot=NULL;
 ```
 
-Initialize:
+Инициализация:
 
 ```cpp
 MaxTransport=new TMaxIndyTransport();
@@ -200,25 +200,25 @@ std::string error;
 MaxBot->Load(((AnsiString)szWorkDir+"max.ini").c_str(),error);
 ```
 
-Delete in reverse order on shutdown. `Load()` applies `BotToken` to `MAX_API_CLIENT` automatically.
+При завершении удалить объекты в обратном порядке. `Load()` автоматически передаёт `BotToken` в `MAX_API_CLIENT`.
 
-## 4. Configure Indy TLS trust
+## 4. Настроить доверие TLS в Indy
 
-`TMaxIndyTransport::SSL()` exposes the production `TIdSSLIOHandlerSocketOpenSSL*`:
+`TMaxIndyTransport::SSL()` возвращает production `TIdSSLIOHandlerSocketOpenSSL*`:
 
 ```cpp
 TIdSSLIOHandlerSocketOpenSSL *ssl=MaxTransport->SSL();
 ssl->SSLOptions->Method=sslvTLSv1_2;
-// Configure the CA/certificate required by MAX here.
+// Здесь настроить CA/сертификат, требуемый MAX.
 ```
 
-Do not permanently solve certificate problems by disabling verification.
+Не следует решать проблемы сертификата постоянным отключением проверки TLS.
 
-## 5. Poll in a worker thread
+## 5. Выполнять polling в worker thread
 
-Do not run Long Polling on the VCL UI thread. The existing Telegram implementation already uses `TTgBotThread`; MAX should use the same pattern.
+Long Polling нельзя выполнять в VCL UI thread. В Telegram уже используется `TTgBotThread`; для MAX следует применить тот же подход.
 
-Worker call:
+Вызов из worker:
 
 ```cpp
 if(MaxBot->Settings.Active && !MaxBot->Settings.PeriodicReadMessagesPaused)
@@ -228,17 +228,17 @@ if(MaxBot->Settings.Active && !MaxBot->Settings.PeriodicReadMessagesPaused)
 }
 ```
 
-Manual read:
+Ручное чтение:
 
 ```cpp
 MaxBot->ReadMessages(false,error,30,100);
 ```
 
-`MAX_API_CLIENT` stores and sends `marker` automatically.
+`MAX_API_CLIENT` автоматически хранит и передаёт `marker`.
 
-## 6. FastScript message callback
+## 6. Подключить callback FastScript
 
-Implement an event bridge:
+Реализовать мост событий:
 
 ```cpp
 class TLanMonMaxEvents : public ILanMonMaxEvents
@@ -255,17 +255,17 @@ public:
 };
 ```
 
-Add a FastScript event analogous to Telegram:
+Добавить FastScript-событие, аналогичное Telegram:
 
 ```text
 OnMaxMessage(UpdateTimestamp, Id, Text)
 ```
 
-For backwards-compatible customer projects the bridge may deliberately call the existing `OnTgMessage` instead, making scripts messenger-neutral without changing the MAX core.
+Если нужно сохранить существующие пользовательские скрипты без изменений, мост может намеренно вызывать старый `OnTgMessage`. Тогда скрипты фактически станут независимыми от конкретного мессенджера.
 
-## 7. FastScript functions
+## 7. Добавить функции FastScript
 
-Map the Telegram functions one-to-one:
+Отобразить Telegram-функции один к одному:
 
 ```text
 TgSendMessage        → MaxSendMessage
@@ -282,7 +282,7 @@ TgUserRcvAlarms      → MaxUserRcvAlarms
 TgUserHasValidAlias  → MaxUserHasValidAlias
 ```
 
-Thin wrappers call:
+Тонкие wrappers вызывают:
 
 ```cpp
 MaxBot->SendMessageByAlias(alias,text,error);
@@ -300,11 +300,11 @@ MaxBot->UserRcvAlarms(index);
 MaxBot->UserHasValidAlias(index,alias);
 ```
 
-If you want old scripts to work unchanged, register the old `Tg*` names to a messenger-neutral dispatcher instead of duplicating script logic.
+Чтобы старые скрипты продолжили работать вообще без изменений, можно зарегистрировать старые имена `Tg*` на messenger-neutral dispatcher вместо дублирования скриптовой логики.
 
-## 8. Alarm hooks
+## 8. Подключить аварийные события
 
-Keep the existing decision points from `src/alarms/Avaria.cpp` and `HistoryAlarm.cpp`, but call MAX too:
+Сохранить существующие точки принятия решения из `src/alarms/Avaria.cpp` и `HistoryAlarm.cpp`, добавив отправку в MAX:
 
 ```cpp
 if(MaxBot && MaxBot->Settings.FlagSendAlarms)
@@ -317,11 +317,13 @@ if(MaxBot && MaxBot->Settings.FlagSendAlarmsEnd)
     MaxBot->OnNewAlarmState(MaxUtf8FromCp1251(mess.c_str()),error);
 ```
 
-`OnNewAlarmState` sends only to users matching `AlarmAlias`.
+`OnNewAlarmState` отправляет сообщение только пользователям, соответствующим `AlarmAlias`.
 
-## 9. User/config UI
+## 9. Пользователи и `max.ini`
 
-Reuse the Telegram UI model: user ID, name, alias, comment, IsBot, InCount, OutCount and Tag. Store MAX separately, e.g. `max.ini`:
+Можно переиспользовать UI-модель Telegram: ID, имя, alias, comment, IsBot, InCount, OutCount и Tag. Для MAX дополнительно нужен `PeerType`, потому что API различает `user_id` и `chat_id`.
+
+MAX лучше хранить отдельно, например в `max.ini`:
 
 ```ini
 [SETUP]
@@ -339,52 +341,70 @@ SendMaps=1
 [User0]
 Name=Operator
 id=123456789
+PeerType=user
 Alias=R001
 Comment=
 InCount=0
 OutCount=0
 Tag=0
+
+[User1]
+Name=Dispatchers
+id=987654321
+PeerType=chat
+Alias=A001
+Comment=Групповой чат аварий
+InCount=0
+OutCount=0
+Tag=0
 ```
 
-Alias rules are intentionally identical to Telegram:
+Значения `PeerType`:
 
-- empty mask → every valid user;
-- `*` → every valid user;
-- `!` → wildcard for exactly one character;
-- all other characters must match at the same position.
+- `user` — отправка через `user_id`;
+- `chat` — отправка через `chat_id`.
 
-## 10. Encoding
+Если `PeerType` отсутствует в старом конфиге, используется `user`.
 
-Legacy LanMon text is often CP1251 while MAX JSON is UTF-8:
+Правила alias намеренно идентичны Telegram:
+
+- пустая маска → любой валидный пользователь;
+- `*` → любой валидный пользователь;
+- `!` → wildcard ровно для одного символа;
+- остальные символы должны совпадать на той же позиции.
+
+## 10. Кодировка
+
+Старый LanMon часто использует CP1251, а JSON MAX — UTF-8:
 
 ```cpp
 std::string utf8=MaxUtf8FromCp1251(ansi.c_str());
 ```
 
-Text parsed from MAX is UTF-8. Convert it in the LanMon bridge if an old VCL/FastScript API expects ANSI.
+Текст, полученный из MAX, уже UTF-8. Если старый VCL/FastScript API ожидает ANSI, преобразование следует выполнять на границе интеграции LanMon.
 
 ---
 
-# MAX platform requirements
+# Требования платформы MAX
 
-This adapter follows the MAX API contract current in August 2026.
+Адаптер следует контракту MAX API, актуальному на август 2026 года.
 
-## Required
+## Обязательные требования
 
-1. Create a MAX chatbot and obtain its access token.
-2. Use `https://platform-api2.max.ru` for API requests.
-3. Send the token only as:
+1. Создать чат-бота MAX и получить access token.
+2. Использовать для API адрес `https://platform-api2.max.ru`.
+3. Передавать токен только в заголовке:
 
    ```text
    Authorization: <access_token>
    ```
 
-   Token-in-query authentication is no longer supported.
-4. Add the Ministry of Digital Development (Минцифры) certificate/CA required by MAX to the trust store used by LanMon's Indy/OpenSSL client.
-5. Permit outgoing HTTPS to `platform-api2.max.ru` and to the upload URLs returned by `POST /uploads`; image and file uploads may use different hosts and the returned URL must be used unchanged.
-6. Keep API traffic within MAX's documented 30 requests/second limit.
+   Передача токена в query больше не поддерживается.
+4. Добавить требуемый MAX сертификат/CA Минцифры в trust store, используемый Indy/OpenSSL внутри LanMon.
+5. Разрешить исходящий HTTPS к `platform-api2.max.ru` и к upload URL, которые возвращает `POST /uploads`. Для image/file MAX может вернуть другой host — полученный URL нужно использовать без изменения.
+6. Не превышать документированный MAX лимит 30 запросов в секунду.
 
-Official docs:
+Официальная документация:
 
 - `https://dev.max.ru/docs-api`
 - `https://dev.max.ru/docs-api/methods/GET/updates`
@@ -393,54 +413,54 @@ Official docs:
 
 ## Long Polling
 
-LanMon uses:
+LanMon использует:
 
 ```http
 GET /updates?timeout=...&limit=...&marker=...
 Authorization: <token>
 ```
 
-This matches the existing architecture because LanMon creates only outgoing HTTPS connections and does not need a public inbound endpoint.
+Это хорошо соответствует текущей архитектуре LanMon: приложение делает только исходящие HTTPS-соединения и не требует публичного входящего endpoint.
 
-MAX currently documents Long Polling as a development/testing mechanism and recommends Webhook for production. Long Polling does not work while an active Webhook subscription exists. If a future deployment must switch to Webhook, keep `LANMON_MAX_BOT`, users, aliases, commands and send/upload code unchanged and replace only update delivery.
+MAX сейчас описывает Long Polling как механизм для разработки/тестирования и рекомендует Webhook для production. Long Polling не работает при активной Webhook-подписке. Если в будущем потребуется перейти на Webhook, `LANMON_MAX_BOT`, пользователи, aliases, команды и код отправки/upload останутся прежними — заменить нужно только доставку входящих updates.
 
-## Uploads used by LanMon
+## Загрузка файлов
 
-`SendPhoto` uses `type=image`:
+`SendPhoto` использует `type=image`:
 
 - JPG/JPEG/PNG/GIF/TIFF/BMP/HEIC;
-- max 50 MB;
-- max 7680×7680 px.
+- максимум 50 MB;
+- максимум 7680×7680 px.
 
-`SendDoc` uses `type=file`:
+`SendDoc` использует `type=file`:
 
-- common document/file formats;
-- max 4 GB according to current MAX API docs.
+- обычные document/file форматы;
+- максимум 4 GB согласно текущей документации MAX API.
 
-Flow:
+Поток загрузки:
 
 ```text
 POST /uploads?type=image|file
-  → multipart POST file to returned URL
-  → receive token
-  → POST /messages with attachments.payload.token
+  → multipart POST файла на возвращённый URL
+  → получение token
+  → POST /messages с attachments.payload.token
 ```
 
-Do not commit the real bot token to Git or log it. Store it in deployment configuration / `max.ini` with appropriate filesystem permissions and rotate it if exposed.
+Реальный token бота нельзя коммитить в Git или писать в логи. Его следует хранить в deployment-конфигурации / `max.ini` с подходящими правами на файл и менять при утечке.
 
 ---
 
-# What Linux CI cannot prove
+# Что не может доказать Linux CI
 
-`maxindy.cpp` requires the old C++Builder/VCL/Indy headers, so Linux CI does not compile that one transport file. Everything above the socket boundary is compiled and executed, including real local TCP/HTTP, marker continuity, aliases, authorization, all Telegram-equivalent commands, image/file uploads and alarm fan-out.
+`maxindy.cpp` требует старые headers C++Builder/VCL/Indy, поэтому Linux CI не компилирует только этот transport-файл. Всё выше границы сокета компилируется и реально выполняется: TCP/HTTP, `marker`, aliases, авторизация, все Telegram-эквивалентные команды, image/file upload и alarm fan-out.
 
-Final Windows acceptance test:
+Финальная приёмка на Windows:
 
 ```text
-C++Builder build
-  → configure MAX CA certificate
-  → GET /me with real token
-  → receive /updates
-  → execute a built-in command
-  → receive text/image/file response
+сборка C++Builder
+  → настройка CA MAX
+  → GET /me с реальным token
+  → получение /updates
+  → выполнение встроенной команды
+  → получение ответа text/image/file
 ```
