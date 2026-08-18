@@ -46,7 +46,6 @@ bool LANMON_MAX_BOT::OnMessages(const MAX_UPDATES &updates,std::string &error)
         ++UserMessageCount;
         MAX_USER *u=UserList.Find(peerId); if(!u && msg.UserId)u=UserList.Find(msg.UserId); if(u)++u->InCount;
         if(Events)Events->OnMaxMessage(msg.UpdateTimestamp,peerId,msg.Text);
-        // Exact Telegram semantics: FlagSendMaps gates all built-in commands, callback above is always fired first.
         if(!Settings.FlagSendMaps)continue;
         if(!u)continue;
         if(!u->HasValidAlias(Settings.RequestAlias))continue;
@@ -55,24 +54,31 @@ bool LANMON_MAX_BOT::OnMessages(const MAX_UPDATES &updates,std::string &error)
     return true;
 }
 
+static bool SendUserMessage(MAX_API_CLIENT *api,MAX_USER *u,const std::string &text,std::string &error)
+{ if(!api||!u)return false; bool ok=api->SendMessage(u->Peer(),text,error);if(ok)++u->OutCount;return ok; }
+static bool SendUserPhoto(MAX_API_CLIENT *api,MAX_USER *u,const std::string &fn,const std::string &caption,std::string &error)
+{ if(!api||!u)return false; bool ok=api->SendImage(u->Peer(),fn,caption,error);if(ok)++u->OutCount;return ok; }
+static bool SendUserDoc(MAX_API_CLIENT *api,MAX_USER *u,const std::string &fn,const std::string &caption,std::string &error)
+{ if(!api||!u)return false; bool ok=api->SendFile(u->Peer(),fn,caption,error);if(ok)++u->OutCount;return ok; }
+
 bool LANMON_MAX_BOT::OnNewAlarmState(const std::string &message,std::string &error)
 {
     std::vector<MAX_USER*> users; UserList.GetUsersByAlias(users,Settings.AlarmAlias);
-    for(size_t i=0;i<users.size();++i) if(!SendMessage(users[i]->Id,message,error))return false;
+    for(size_t i=0;i<users.size();++i) if(!SendUserMessage(Api,users[i],message,error))return false;
     return true;
 }
 
 bool LANMON_MAX_BOT::SendMessage(max_int64 id,const std::string &text,std::string &error)
 {
-    if(!Api){error="MAX API is null";return false;} bool ok=Api->SendMessage(PeerFromId(id),text,error); if(ok){MAX_USER*u=UserList.Find(id);if(u)++u->OutCount;} return ok;
+    if(!Api){error="MAX API is null";return false;} MAX_USER*u=UserList.Find(id);if(u)return SendUserMessage(Api,u,text,error);return Api->SendMessage(PeerFromId(id),text,error);
 }
 bool LANMON_MAX_BOT::SendPhoto(max_int64 id,const std::string &fn,const std::string &caption,std::string &error)
 {
-    if(!Api){error="MAX API is null";return false;} bool ok=Api->SendImage(PeerFromId(id),fn,caption,error); if(ok){MAX_USER*u=UserList.Find(id);if(u)++u->OutCount;} return ok;
+    if(!Api){error="MAX API is null";return false;} MAX_USER*u=UserList.Find(id);if(u)return SendUserPhoto(Api,u,fn,caption,error);return Api->SendImage(PeerFromId(id),fn,caption,error);
 }
 bool LANMON_MAX_BOT::SendDoc(max_int64 id,const std::string &fn,const std::string &caption,std::string &error)
 {
-    if(!Api){error="MAX API is null";return false;} bool ok=Api->SendFile(PeerFromId(id),fn,caption,error); if(ok){MAX_USER*u=UserList.Find(id);if(u)++u->OutCount;} return ok;
+    if(!Api){error="MAX API is null";return false;} MAX_USER*u=UserList.Find(id);if(u)return SendUserDoc(Api,u,fn,caption,error);return Api->SendFile(PeerFromId(id),fn,caption,error);
 }
 
 static bool NumericAlias(const std::string &s){return !s.empty() && std::isdigit((unsigned char)s[0]);}
@@ -86,15 +92,15 @@ static max_int64 ParseId(const std::string &s){
 
 bool LANMON_MAX_BOT::SendMessageByAlias(const std::string &alias,const std::string &text,std::string &error)
 {
-    std::vector<MAX_USER*> us; UserList.GetUsersByAlias(us,alias); if(!us.empty()){for(size_t i=0;i<us.size();++i)if(!SendMessage(us[i]->Id,text,error))return false;return true;} return !NumericAlias(alias)||SendMessage(ParseId(alias),text,error);
+    std::vector<MAX_USER*> us; UserList.GetUsersByAlias(us,alias); if(!us.empty()){for(size_t i=0;i<us.size();++i)if(!SendUserMessage(Api,us[i],text,error))return false;return true;} return !NumericAlias(alias)||Api->SendMessage(MAX_PEER(maxPeerUser,ParseId(alias)),text,error);
 }
 bool LANMON_MAX_BOT::SendPhotoByAlias(const std::string &alias,const std::string &fn,const std::string &caption,std::string &error)
 {
-    std::vector<MAX_USER*> us; UserList.GetUsersByAlias(us,alias); if(!us.empty()){for(size_t i=0;i<us.size();++i)if(!SendPhoto(us[i]->Id,fn,caption,error))return false;return true;} return !NumericAlias(alias)||SendPhoto(ParseId(alias),fn,caption,error);
+    std::vector<MAX_USER*> us; UserList.GetUsersByAlias(us,alias); if(!us.empty()){for(size_t i=0;i<us.size();++i)if(!SendUserPhoto(Api,us[i],fn,caption,error))return false;return true;} return !NumericAlias(alias)||Api->SendImage(MAX_PEER(maxPeerUser,ParseId(alias)),fn,caption,error);
 }
 bool LANMON_MAX_BOT::SendDocByAlias(const std::string &alias,const std::string &fn,const std::string &caption,std::string &error)
 {
-    std::vector<MAX_USER*> us; UserList.GetUsersByAlias(us,alias); if(!us.empty()){for(size_t i=0;i<us.size();++i)if(!SendDoc(us[i]->Id,fn,caption,error))return false;return true;} return !NumericAlias(alias)||SendDoc(ParseId(alias),fn,caption,error);
+    std::vector<MAX_USER*> us; UserList.GetUsersByAlias(us,alias); if(!us.empty()){for(size_t i=0;i<us.size();++i)if(!SendUserDoc(Api,us[i],fn,caption,error))return false;return true;} return !NumericAlias(alias)||Api->SendFile(MAX_PEER(maxPeerUser,ParseId(alias)),fn,caption,error);
 }
 
 bool LANMON_MAX_BOT::SetUserTag(size_t i,int tag){MAX_USER*u=UserList.Get(i);if(!u)return false;u->Tag=tag;return true;}
