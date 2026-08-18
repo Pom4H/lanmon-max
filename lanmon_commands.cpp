@@ -2,75 +2,101 @@
 #include <cctype>
 #include <cstdlib>
 
-static std::string StopDoneText()
+static std::string Utf8UpperRussian(const std::string & text)
 {
-    return MaxUtf8FromCp1251("\xCA\xEE\xEC\xE0\xED\xE4\xE0 \xD1\xD2\xCE\xCF \xE2\xFB\xEF\xEE\xEB\xED\xE5\xED\xE0");
-}
-
-static std::string MapCaption(int mapIndex)
-{
-    return MaxUtf8FromCp1251("\xCA\xE0\xF0\xF2\xE0 ") + MaxInt64ToString(mapIndex);
-}
-
-static std::string HelpText()
-{
-    return MaxUtf8FromCp1251(
-        "\xC2\xEE\xE7\xEC\xEE\xE6\xED\xFB\xE5 \xE7\xE0\xEF\xF0\xEE\xF1\xFB:\n"
-        "MAP x - \xEA\xE0\xF0\xF2\xE0 \xED\xEE\xEC\xE5\xF0 x\n"
-        "STOP - \xE7\xE0\xEA\xF0\xFB\xF2\xFC \xEE\xEA\xED\xEE \xE0\xE2\xE0\xF0\xE8\xE9\n"
-        "HELP (?) - \xEF\xEE\xEC\xEE\xF9\xFC");
-}
-
-std::string LANMON_MAX_COMMAND_ROUTER::TrimUpperAscii(const std::string & text)
-{
-    size_t begin=0;
-    while(begin<text.size() && std::isspace((unsigned char)text[begin])) ++begin;
-    size_t end=text.size();
-    while(end>begin && std::isspace((unsigned char)text[end-1])) --end;
-    std::string out=text.substr(begin,end-begin);
-    for(size_t i=0;i<out.size();++i) {
-        unsigned char c=(unsigned char)out[i];
-        if(c>='a' && c<='z') out[i]=(char)(c-'a'+'A');
+    std::string out;
+    for(size_t i=0;i<text.size();++i) {
+        unsigned char a=(unsigned char)text[i];
+        if(a>='a' && a<='z') { out+=(char)(a-'a'+'A'); continue; }
+        if(a==0xD0 && i+1<text.size()) {
+            unsigned char b=(unsigned char)text[i+1];
+            if(b>=0xB0 && b<=0xBF) { out+=(char)0xD0; out+=(char)(b-0x20); ++i; continue; }
+        }
+        if(a==0xD1 && i+1<text.size()) {
+            unsigned char b=(unsigned char)text[i+1];
+            if(b>=0x80 && b<=0x8F) { out+=(char)0xD0; out+=(char)(b+0x20); ++i; continue; }
+            if(b==0x91) { out+=(char)0xD0; out+=(char)0x81; ++i; continue; }
+        }
+        out+=(char)a;
     }
     return out;
+}
+
+static std::string StopDoneText() { return "Команда СТОП выполнена"; }
+static std::string MapCaption(int n) { return std::string("Карта ")+MaxInt64ToString(n); }
+static std::string ScreenCaption(int n) { return n>0?std::string("Экран ")+MaxInt64ToString(n):std::string("Экран"); }
+static std::string LogCaption(const std::string & dt) { return std::string("Журнал ")+dt; }
+static std::string AlarmCaption(const std::string & dt) { return std::string("Тревоги ")+dt; }
+static std::string HelpText()
+{
+    return "Возможные запросы:\n"
+           "SCREEN (Экран) - все экраны\n"
+           "SCREEN x (Экран x) - экран номер x\n"
+           "MAP x (Карта x) - карта номер x\n"
+           "LOG (Журнал) - текущий журнал\n"
+           "LOGXLS - текущий журнал в формате XLS\n"
+           "ALARM (Тревоги) - история тревог PDF\n"
+           "STOP (Стоп) - закрыть окно аварий\n"
+           "HELP (?) - помощь\n"
+           "?? - дополнительные запросы";
+}
+
+std::string LANMON_MAX_COMMAND_ROUTER::TrimUpper(const std::string & text)
+{
+    size_t begin=0; while(begin<text.size() && std::isspace((unsigned char)text[begin])) ++begin;
+    size_t end=text.size(); while(end>begin && std::isspace((unsigned char)text[end-1])) --end;
+    return Utf8UpperRussian(text.substr(begin,end-begin));
 }
 
 int LANMON_MAX_COMMAND_ROUTER::ParsePositiveIndex(const std::string & text, size_t prefixLen)
 {
     if(text.size()<=prefixLen) return 0;
-    const char * p=text.c_str()+prefixLen;
-    while(*p && std::isspace((unsigned char)*p)) ++p;
-    int value=std::atoi(p);
-    return value>0?value:0;
+    const char *p=text.c_str()+prefixLen; while(*p && std::isspace((unsigned char)*p)) ++p;
+    int value=std::atoi(p); return value>0?value:0;
 }
 
 MAX_PEER LANMON_MAX_COMMAND_ROUTER::PeerFor(const MAX_MESSAGE & msg) const
 {
-    if(msg.ChatId!=0) return MAX_PEER(maxPeerChat,msg.ChatId);
-    return MAX_PEER(maxPeerUser,msg.UserId);
+    return msg.ChatId!=0?MAX_PEER(maxPeerChat,msg.ChatId):MAX_PEER(maxPeerUser,msg.UserId);
 }
 
 bool LANMON_MAX_COMMAND_ROUTER::Handle(const MAX_MESSAGE & msg, std::string & error)
 {
     if(!Api || !Actions) { error="LanMon MAX router is not initialized"; return false; }
-    std::string text=TrimUpperAscii(msg.Text);
-    MAX_PEER peer=PeerFor(msg);
+    const std::string text=TrimUpper(msg.Text); const MAX_PEER peer=PeerFor(msg);
+    const std::string RU_SCREEN="ЭКРАН", RU_MAP="КАРТА", RU_STOP="СТОП", RU_LOG="ЖУРНАЛ", RU_ALARM="ТРЕВОГИ";
 
-    if(text.compare(0,4,"STOP")==0) {
+    if(text.compare(0,6,"SCREEN")==0 || text.compare(0,RU_SCREEN.size(),RU_SCREEN)==0) {
+        size_t prefix=text.compare(0,6,"SCREEN")==0?6:RU_SCREEN.size();
+        int screenIndex=ParsePositiveIndex(text,prefix); std::string fn,ignored;
+        bool ok=Actions->CreateMonitorImage(screenIndex-1,fn,ignored);
+        if(!ok) { fn.clear(); error.clear(); ok=Actions->CreateDesktopImage(fn,error); }
+        if(ok && !fn.empty()) return Api->SendImage(peer,fn,ScreenCaption(screenIndex),error);
+        return ok;
+    }
+    if(text.compare(0,3,"MAP")==0 || text.compare(0,RU_MAP.size(),RU_MAP)==0) {
+        size_t prefix=text.compare(0,3,"MAP")==0?3:RU_MAP.size();
+        int mapIndex=ParsePositiveIndex(text,prefix); if(mapIndex<=0) return true;
+        std::string fn; if(!Actions->CreateMapImage(mapIndex-1,fn,error)) return false;
+        return fn.empty()?true:Api->SendImage(peer,fn,MapCaption(mapIndex),error);
+    }
+    if(text.compare(0,4,"STOP")==0 || text.compare(0,RU_STOP.size(),RU_STOP)==0) {
         if(!Actions->CloseAlarmWindow(error)) return false;
         return Api->SendMessage(peer,StopDoneText(),error);
     }
-
-    if(text.compare(0,3,"MAP")==0) {
-        int mapIndex=ParsePositiveIndex(text,3);
-        if(mapIndex<=0) return true;
-        std::string filename;
-        if(!Actions->CreateMapImage(mapIndex-1,filename,error)) return false;
-        return Api->SendImage(peer,filename,MapCaption(mapIndex),error);
+    if(text.compare(0,6,"LOGXLS")==0) {
+        std::string fn; if(!Actions->ExportLogXls(fn,error)) return false;
+        return fn.empty()?true:Api->SendFile(peer,fn,LogCaption(Actions->CurrentDateTimeText()),error);
     }
-
+    if(text.compare(0,3,"LOG")==0 || text.compare(0,RU_LOG.size(),RU_LOG)==0) {
+        std::string fn; if(!Actions->ExportLogHtml(fn,error)) return false;
+        return fn.empty()?true:Api->SendFile(peer,fn,LogCaption(Actions->CurrentDateTimeText()),error);
+    }
+    if(text.compare(0,5,"ALARM")==0 || text.compare(0,RU_ALARM.size(),RU_ALARM)==0) {
+        std::string fn; if(!Actions->CreateAlarmsPdf(fn,error)) return false;
+        return fn.empty()?true:Api->SendFile(peer,fn,AlarmCaption(Actions->CurrentDateTimeText()),error);
+    }
     if(text.compare(0,4,"HELP")==0 || (!text.empty() && text[0]=='?'))
         return Api->SendMessage(peer,HelpText(),error);
-
     return true;
 }
