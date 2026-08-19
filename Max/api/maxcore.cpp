@@ -70,6 +70,22 @@ private:
     bool Fail(const std::string & msg) {
         std::ostringstream os; os << msg << " at byte " << P; Error=os.str(); return false;
     }
+    //Разобрать ровно четыре hex-цифры после \u
+    bool ParseHex4(unsigned long & cp)
+    {
+        if(P+4>S.size())return Fail("Short unicode escape");
+        cp=0;
+        for(int i=0;i<4;i++)
+        {
+            char h=S[P++];
+            cp<<=4;
+            if(h>='0'&&h<='9')cp+=(h-'0');
+            else if(h>='a'&&h<='f')cp+=(h-'a'+10);
+            else if(h>='A'&&h<='F')cp+=(h-'A'+10);
+            else return Fail("Invalid unicode escape");
+        }
+        return true;
+    }
     //Разобрать значение любого JSON типа
     bool ParseValue(JsonValue & v)
     {
@@ -85,7 +101,7 @@ private:
         if(c=='-' || (c>='0' && c<='9')) return ParseNumber(v);
         return Fail("Unexpected JSON token");
     }
-    //Разобрать JSON string, включая \uXXXX
+    //Разобрать JSON string, включая \uXXXX и UTF-16 surrogate pair
     bool ParseString(std::string & out)
     {
         if(P>=S.size() || S[P]!='\"') return Fail("Expected string");
@@ -101,16 +117,29 @@ private:
                     case 'b': out+='\b'; break; case 'f': out+='\f'; break; case 'n': out+='\n'; break;
                     case 'r': out+='\r'; break; case 't': out+='\t'; break;
                     case 'u': {
-                        if(P+4>S.size()) return Fail("Short unicode escape");
                         unsigned long cp=0;
-                        for(int i=0;i<4;i++) {
-                            char h=S[P++]; cp<<=4;
-                            if(h>='0'&&h<='9') cp+=(h-'0');
-                            else if(h>='a'&&h<='f') cp+=(h-'a'+10);
-                            else if(h>='A'&&h<='F') cp+=(h-'A'+10);
-                            else return Fail("Invalid unicode escape");
+                        if(!ParseHex4(cp))return false;
+
+                        //JSON кодирует code point > U+FFFF парой UTF-16 surrogate escapes.
+                        if(cp>=0xD800 && cp<=0xDBFF)
+                        {
+                            if(P+2>S.size() || S[P]!='\\' || S[P+1]!='u')
+                                return Fail("Missing low surrogate");
+                            P+=2;
+                            unsigned long low=0;
+                            if(!ParseHex4(low))return false;
+                            if(low<0xDC00 || low>0xDFFF)
+                                return Fail("Invalid low surrogate");
+                            cp=0x10000 + ((cp-0xD800)<<10) + (low-0xDC00);
                         }
-                        AppendUtf8(out,cp); break;
+                        else if(cp>=0xDC00 && cp<=0xDFFF)
+                        {
+                            return Fail("Unexpected low surrogate");
+                        }
+
+                        if(cp>0x10FFFF)return Fail("Unicode code point out of range");
+                        AppendUtf8(out,cp);
+                        break;
                     }
                     default: return Fail("Invalid escape sequence");
                 }
@@ -125,18 +154,44 @@ private:
     bool ParseNumber(JsonValue & v)
     {
         size_t start=P;
-        if(S[P]=='-') ++P;
-        if(P>=S.size()) return Fail("Invalid number");
-        if(S[P]=='0') ++P;
-        else {
+        if(S[P]=='-')
+        {
+            ++P;
+            if(P>=S.size())return Fail("Invalid number");
+        }
+
+        //Integer part: только 0 или число без ведущего нуля
+        if(S[P]=='0')
+        {
+            ++P;
+            if(P<S.size() && std::isdigit((unsigned char)S[P]))
+                return Fail("Leading zero in number");
+        }
+        else
+        {
             if(!(S[P]>='1'&&S[P]<='9')) return Fail("Invalid number");
             while(P<S.size() && std::isdigit((unsigned char)S[P])) ++P;
         }
-        if(P<S.size() && S[P]=='.') { ++P; while(P<S.size() && std::isdigit((unsigned char)S[P])) ++P; }
-        if(P<S.size() && (S[P]=='e'||S[P]=='E')) {
-            ++P; if(P<S.size()&&(S[P]=='+'||S[P]=='-')) ++P;
+
+        //Fraction требует хотя бы одну цифру после точки
+        if(P<S.size() && S[P]=='.')
+        {
+            ++P;
+            if(P>=S.size() || !std::isdigit((unsigned char)S[P]))
+                return Fail("Invalid fraction");
             while(P<S.size() && std::isdigit((unsigned char)S[P])) ++P;
         }
+
+        //Exponent требует хотя бы одну цифру после e/E и необязательного знака
+        if(P<S.size() && (S[P]=='e'||S[P]=='E'))
+        {
+            ++P;
+            if(P<S.size()&&(S[P]=='+'||S[P]=='-')) ++P;
+            if(P>=S.size() || !std::isdigit((unsigned char)S[P]))
+                return Fail("Invalid exponent");
+            while(P<S.size() && std::isdigit((unsigned char)S[P])) ++P;
+        }
+
         v.Type=jtNumber; v.StringValue=S.substr(start,P-start); return true;
     }
     //Разобрать JSON array
