@@ -119,6 +119,13 @@ int main()
     CHECK(!MaxParseUpdates("[]",up,err));
     CHECK(!MaxParseUpdates("{\"marker\":1}",up,err));
 
+    // JSON number grammar must be strict. These forms are forbidden by RFC JSON grammar.
+    CHECK(!MaxParseUpdates("{\"updates\":[],\"marker\":1.}",up,err));
+    CHECK(!MaxParseUpdates("{\"updates\":[],\"marker\":1e}",up,err));
+    CHECK(!MaxParseUpdates("{\"updates\":[],\"marker\":1e+}",up,err));
+    CHECK(!MaxParseUpdates("{\"updates\":[],\"marker\":01}",up,err));
+    CHECK(!MaxParseUpdates("{\"updates\":[],\"marker\":-}",up,err));
+
     // JSON \uXXXX escapes from MAX are decoded to UTF-8.
     std::string unicodeJson=
         "{\"updates\":[{\"update_type\":\"message_created\",\"timestamp\":1,\"message\":{"
@@ -126,6 +133,25 @@ int main()
         "\"timestamp\":1,\"body\":{\"mid\":\"m\",\"text\":\"\\u041f\\u0440\\u0438\\u0432\\u0435\\u0442\"}}}],\"marker\":2}";
     CHECK(MaxParseUpdates(unicodeJson,up,err));
     CHECK(up.Messages.size()==1 && up.Messages[0].Text=="Привет");
+
+    // UTF-16 surrogate pair in JSON must become one Unicode code point, not invalid UTF-8.
+    std::string surrogateJson=
+        "{\"updates\":[{\"update_type\":\"message_created\",\"timestamp\":1,\"message\":{"
+        "\"sender\":{\"user_id\":1},\"recipient\":{\"chat_id\":2,\"chat_type\":\"dialog\"},"
+        "\"timestamp\":1,\"body\":{\"mid\":\"m\",\"text\":\"emoji \\uD83D\\uDE00\"}}}],\"marker\":2}";
+    CHECK(MaxParseUpdates(surrogateJson,up,err));
+    CHECK(up.Messages.size()==1 && up.Messages[0].Text=="emoji 😀");
+
+    // Lone or mismatched UTF-16 surrogate escapes are invalid JSON strings for our UTF-8 output.
+    CHECK(!MaxParseUpdates(
+        "{\"updates\":[{\"update_type\":\"message_created\",\"message\":{\"body\":{\"text\":\"\\uD83D\"}}}]}",
+        up,err));
+    CHECK(!MaxParseUpdates(
+        "{\"updates\":[{\"update_type\":\"message_created\",\"message\":{\"body\":{\"text\":\"\\uDE00\"}}}]}",
+        up,err));
+    CHECK(!MaxParseUpdates(
+        "{\"updates\":[{\"update_type\":\"message_created\",\"message\":{\"body\":{\"text\":\"\\uD83D\\u0041\"}}}]}",
+        up,err));
 
     // Raw UTF-8 from a normal MAX response must be preserved, including emoji.
     std::string utf8Json=
