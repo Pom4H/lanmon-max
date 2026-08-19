@@ -6,19 +6,41 @@ on:
     branches: [ main ]
   pull_request:
 
+permissions:
+  contents: read
+  statuses: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
+      # Classic commit status makes push-triggered Actions observable through the
+      # GitHub connector as pending/success/failure, not only through the Actions UI.
+      - name: Publish pending CI status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d "{\"state\":\"pending\",\"context\":\"lanmon-max/ci\",\"description\":\"LanMon MAX CI is running\",\"target_url\":\"$TARGET_URL\"}"
+
       - name: Toolchain
         run: |
           g++ --version
           python3 --version
           openssl version
+
       - name: MAX API unit tests (C++98) + mirror source check
         run: bash ./Max/tests/run.sh
+
       - name: MAX TLS 1.2 with Ministry CA
         shell: bash
         run: |
@@ -37,5 +59,30 @@ jobs:
           fi
           cat "$LOG"
           grep -q 'Verify return code: 0 (ok)' "$LOG"
+
       - name: MAX HTTP E2E
         run: bash ./Max/e2e/run_e2e.sh
+
+      - name: Publish final CI status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE="success"
+            DESCRIPTION="LanMon MAX CI passed"
+          else
+            STATE="failure"
+            DESCRIPTION="LanMon MAX CI failed"
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d "{\"state\":\"$STATE\",\"context\":\"lanmon-max/ci\",\"description\":\"$DESCRIPTION\",\"target_url\":\"$TARGET_URL\"}"
