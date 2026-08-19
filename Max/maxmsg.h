@@ -33,7 +33,7 @@ public:
     AnsiString Id;          //Уникальный идентификатор чата
     AnsiString first_name;  //Имя собеседника в приватном чате
     AnsiString last_name;   //Фамилия собеседника в приватном чате
-    AnsiString type;        //Тип чата MAX
+    AnsiString type;        //Тип чата MAX: dialog/chat/channel и т.п.
     AnsiString username;    //Имя пользователя/чата, если доступно
     void Clear(void){Id="";first_name="";last_name="";type="";username="";}
     __property bool Valid={read=GetValid};
@@ -65,6 +65,9 @@ public:
     //Тип сообщения
     MaxMessageType Type;
 
+    //В MAX отдельного последовательного update_id нет: для сохранения интерфейса
+    //Telegram сюда кладётся timestamp события update. Сам курсор чтения MAX — marker —
+    //хранится внутри MAX_API_CLIENT и не является свойством одного сообщения.
     __int64 update_id;      //Идентификатор обновления MAX (timestamp)
     AnsiString message_id;  //Уникальный идентификатор сообщения внутри MAX
     MaxFrom From;           //Отправитель сообщения
@@ -84,7 +87,9 @@ public:
     __property AnsiString TypeText={read=GetTypeText};
     __property AnsiString ParticipantText={read=GetParticipantText};
     __property bool IsChat={read=GetIsChat};
+    //Копирование
     void CopyFrom(MaxMessage * msg);
+    //Получение сообщения из нормализованного ответа MAX API
     void CopyFrom(const MAX_MESSAGE & msg);
 };
 //---------------------------------------------------------------------------
@@ -148,7 +153,9 @@ public:
     __property bool Valid={read=GetValid};
     //Копирование
     void CopyFrom(MaxUser * user);
+    //Заполнить пользователя из отправителя сообщения
     void CopyUserFrom(MaxMessage * msg);
+    //Заполнить пользователя из чата сообщения
     void CopyChatFrom(MaxMessage * msg);
     //Проверка, что пользователь соответствует маске псевдонима
     bool HasValidAlias(AnsiString alias);
@@ -169,7 +176,7 @@ __published:
     __property UINT OutCount = { read=FOutCount, write=FOutCount };
     //Целочисленная переменная пользователя
     __property int Tag = { read=FTag, write=FTag };
-    //Тип адресата MAX
+    //Тип адресата MAX: user_id или chat_id
     __property MAX_PEER_TYPE PeerType = { read=FPeerType, write=FPeerType };
 };
 //---------------------------------------------------------------------------
@@ -209,6 +216,7 @@ public:
     void GetIndexesByAlias(TList * list,AnsiString alias);
 };
 //---------------------------------------------------------------------------
+//Информация о MAX боте
 class MaxBotInfo
 {
     bool GetValid(void){return (bool)Id.Length();}
@@ -220,6 +228,7 @@ public:
     __property bool Valid={read=GetValid};
     //Получение из ответа сервера
     void CopyFrom(const MAX_BOT_INFO & bi);
+    //Копирование
     void CopyFrom(MaxBotInfo & bi);
     MaxBotInfo operator = (MaxBotInfo & bi){CopyFrom(bi);return *this;}
 };
