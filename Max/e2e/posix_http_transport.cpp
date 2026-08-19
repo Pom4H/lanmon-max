@@ -1,3 +1,4 @@
+// Socket-level HTTP transport used only to test MAX_API_CLIENT end-to-end on Linux CI.
 #include "posix_http_transport.h"
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -9,6 +10,7 @@
 #include <sstream>
 #include <fstream>
 
+// Parsed components of the local http:// URL.
 struct ParsedUrl
 {
     std::string host;
@@ -16,6 +18,7 @@ struct ParsedUrl
     std::string path;
 };
 
+// Parse plain HTTP URL. HTTPS is intentionally not implemented here: production TLS belongs to Indy/OpenSSL.
 static bool ParseHttpUrl(const std::string & url, ParsedUrl & out, std::string & error)
 {
     const std::string prefix="http://";
@@ -34,6 +37,7 @@ static bool ParseHttpUrl(const std::string & url, ParsedUrl & out, std::string &
     return true;
 }
 
+// send() may write only part of a request; continue until the full HTTP request is sent.
 static bool SendAll(int fd, const std::string & data)
 {
     size_t sent=0;
@@ -45,6 +49,7 @@ static bool SendAll(int fd, const std::string & data)
     return true;
 }
 
+// Decode HTTP/1.1 chunked response body used by some local/server implementations.
 static std::string DecodeChunked(const std::string & body)
 {
     std::string out;
@@ -63,26 +68,32 @@ static std::string DecodeChunked(const std::string & body)
     return out;
 }
 
+// HTTP GET wrapper.
 MAX_HTTP_RESPONSE TPosixHttpTransport::Get(const std::string & url,
     const std::map<std::string,std::string> & headers)
 {
     return Request("GET",url,headers,"");
 }
 
+// HTTP POST wrapper.
 MAX_HTTP_RESPONSE TPosixHttpTransport::Post(const std::string & url,
     const std::map<std::string,std::string> & headers,const std::string & body)
 {
     return Request("POST",url,headers,body);
 }
 
+// Build multipart/form-data exactly enough to exercise MAX upload behavior in E2E.
 MAX_HTTP_RESPONSE TPosixHttpTransport::PostMultipartFile(const std::string & url,
     const std::map<std::string,std::string> & headers,const std::string & fieldName,
     const std::string & filename)
 {
+    // Read the fixture as raw bytes.
     std::ifstream in(filename.c_str(),std::ios::in|std::ios::binary);
     MAX_HTTP_RESPONSE r;
     if(!in) { r.Error=std::string("cannot open upload file: ")+filename; return r; }
     std::ostringstream data; data << in.rdbuf();
+
+    // Fixed boundary keeps the test deterministic.
     const std::string boundary="----LanMonMaxE2EBoundary7MA4YWxk";
     std::ostringstream body;
     body << "--" << boundary << "\r\n";
@@ -94,6 +105,7 @@ MAX_HTTP_RESPONSE TPosixHttpTransport::PostMultipartFile(const std::string & url
     return Request("POST",url,h,body.str());
 }
 
+// Execute one HTTP/1.1 request over a real TCP socket and return MAX_HTTP_RESPONSE.
 MAX_HTTP_RESPONSE TPosixHttpTransport::Request(const std::string & method,
     const std::string & url,const std::map<std::string,std::string> & headers,
     const std::string & body)
@@ -102,12 +114,14 @@ MAX_HTTP_RESPONSE TPosixHttpTransport::Request(const std::string & method,
     ParsedUrl u; std::string error;
     if(!ParseHttpUrl(url,u,error)) { result.Error=error; return result; }
 
+    // Resolve localhost/host and prepare TCP stream addresses.
     struct addrinfo hints; std::memset(&hints,0,sizeof(hints));
     hints.ai_family=AF_UNSPEC; hints.ai_socktype=SOCK_STREAM;
     struct addrinfo *ai=0;
     int gr=getaddrinfo(u.host.c_str(),u.port.c_str(),&hints,&ai);
     if(gr!=0) { result.Error=std::string("getaddrinfo: ")+gai_strerror(gr); return result; }
 
+    // Try resolved addresses until TCP connect succeeds.
     int fd=-1;
     for(struct addrinfo *p=ai;p;p=p->ai_next) {
         fd=socket(p->ai_family,p->ai_socktype,p->ai_protocol);
@@ -118,6 +132,7 @@ MAX_HTTP_RESPONSE TPosixHttpTransport::Request(const std::string & method,
     freeaddrinfo(ai);
     if(fd<0) { result.Error=std::string("connect failed: ")+std::strerror(errno); return result; }
 
+    // Serialize HTTP request, including Authorization/Content-Type passed by MAX_API_CLIENT.
     std::ostringstream req;
     req << method << " " << u.path << " HTTP/1.1\r\n";
     req << "Host: " << u.host << ":" << u.port << "\r\n";
@@ -128,6 +143,7 @@ MAX_HTTP_RESPONSE TPosixHttpTransport::Request(const std::string & method,
     req << "\r\n" << body;
     if(!SendAll(fd,req.str())) { close(fd); result.Error="send failed"; return result; }
 
+    // Read response until the test server closes the connection.
     std::string raw; char buf[4096];
     for(;;) {
         ssize_t n=recv(fd,buf,sizeof(buf),0);
@@ -137,6 +153,7 @@ MAX_HTTP_RESPONSE TPosixHttpTransport::Request(const std::string & method,
     }
     close(fd);
 
+    // Split HTTP headers/body and extract numeric status code.
     size_t sep=raw.find("\r\n\r\n");
     if(sep==std::string::npos) { result.Error="malformed HTTP response"; return result; }
     std::string head=raw.substr(0,sep);
@@ -144,6 +161,8 @@ MAX_HTTP_RESPONSE TPosixHttpTransport::Request(const std::string & method,
     std::istringstream first(head.substr(0,head.find("\r\n")));
     std::string http; first >> http >> result.StatusCode;
     if(result.StatusCode==0) { result.Error="missing HTTP status"; return result; }
+
+    // Normalize chunked body so MAX_API_CLIENT sees the same body shape as with Indy.
     if(head.find("Transfer-Encoding: chunked")!=std::string::npos || head.find("transfer-encoding: chunked")!=std::string::npos)
         result.Body=DecodeChunked(result.Body);
     return result;
