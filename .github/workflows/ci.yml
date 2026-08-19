@@ -17,8 +17,8 @@ jobs:
           g++ --version
           python3 --version
       - name: Unit tests (C++98)
-        run: bash ./tests/run.sh
+        run: bash ./Max/tests/run.sh
       - name: MAX HTTP E2E
-        run: bash ./e2e/run_e2e.sh
+        run: bash ./Max/e2e/run_e2e.sh
       - name: LanMon command E2E
-        run: bash ./e2e_lanmon/run.sh
+        run: bash ./Max/e2e_lanmon/run.sh
