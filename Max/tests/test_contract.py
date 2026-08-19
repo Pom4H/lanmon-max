@@ -264,7 +264,7 @@ require_absent(
     "Thread->OnGetMe=",
 )
 
-# SSL trust is an integration contract, not just README text.
+# SSL trust is an executable integration contract, not just README text.
 require(
     indy,
     "Indy TLS",
@@ -273,7 +273,25 @@ require(
     "sslvrfPeer",
     "VerifyDepth=9",
     "sslvTLSv1_2",
+    'StartupError="MAX CA bundle not found: "+rootCert;',
 )
+
+# Missing CA must fail closed before any network operation starts.
+startup_failed = function_body(indy, "bool TMaxIndyTransport::StartupFailed")
+require(startup_failed, "Indy TLS fail-closed", "StartupError", "response.StatusCode=0", "response.Error=StartupError.c_str()")
+for signature, first_network_token in (
+    ("MAX_HTTP_RESPONSE TMaxIndyTransport::Get", "ApplyHeaders(headers);"),
+    ("MAX_HTTP_RESPONSE TMaxIndyTransport::Post(", "ApplyHeaders(headers);"),
+    ("MAX_HTTP_RESPONSE TMaxIndyTransport::PostMultipartFile", "ApplyHeaders(headers);"),
+):
+    body = function_body(indy, signature)
+    require_order(
+        body,
+        f"{signature} fail-closed",
+        "MAX_HTTP_RESPONSE blocked;",
+        "if(StartupFailed(blocked))return blocked;",
+        first_network_token,
+    )
 
 # Multipart upload-host is deliberately kept separate from Bot API authorization.
 require(
@@ -287,6 +305,30 @@ require_absent(
     "MAX multipart security",
     "Headers(false)",
     "Headers(true)",
+)
+
+# attachment.not.ready retry must reuse the same token/body and never repeat multipart upload.
+upload_flow = function_body(client, "bool MAX_API_CLIENT::SendUploadedAttachment")
+require_order(
+    upload_flow,
+    "attachment.not.ready retry",
+    "MaxParseUploadToken(uploaded.Body,token,error)",
+    "const unsigned int retryDelayMs[]={500,1000,2000};",
+    "const int maxAttempts=4;",
+    "std::string body=BuildAttachmentMessageBody",
+    "for(int attempt=0;attempt<maxAttempts;attempt++)",
+    "Transport->Post(",
+    "if(CheckResponse(sent,error))return true;",
+    "if(!IsAttachmentNotReady(sent) || attempt==maxAttempts-1)return false;",
+    "Transport->SleepMilliseconds(retryDelayMs[attempt]);",
+)
+retry_part = section(upload_flow, "const unsigned int retryDelayMs[]", "return false;", "attachment retry loop")
+require_absent(
+    retry_part,
+    "attachment.not.ready retry",
+    "PostMultipartFile",
+    "MaxParseUploadUrl",
+    "MaxParseUploadToken",
 )
 
 if errors:
