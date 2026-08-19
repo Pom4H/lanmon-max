@@ -6,7 +6,7 @@
 //---------------------------------------------------------------------------
 #pragma package(smart_init)
 //---------------------------------------------------------------------------
-//---------------------------------------------------------------------------
+//Копирование задания
 void MB_TASK::operator=(MB_TASK & task)
 {
     Type=task.Type;
@@ -18,11 +18,13 @@ void MB_TASK::operator=(MB_TASK & task)
 //---------------------------------------------------------------------------
 //Список заданий
 //---------------------------------------------------------------------------
+//Конструктор
 MB_TASK_LIST::MB_TASK_LIST()
 {
     List=new TThreadList;
 }
 //---------------------------------------------------------------------------
+//Деструктор
 MB_TASK_LIST::~MB_TASK_LIST()
 {
     //Очистить все задания
@@ -48,6 +50,7 @@ bool MB_TASK_LIST::Get(MB_TASK & task)
     return ret;
 }
 //---------------------------------------------------------------------------
+//Добавление готового задания в список
 void MB_TASK_LIST::Put(MB_TASK & task)
 {
     MB_TASK * pt=new MB_TASK;
@@ -62,6 +65,7 @@ void MB_TASK_LIST::Clear()
     while(Get(task));
 }
 //---------------------------------------------------------------------------
+//Добавить задание без параметров
 void MB_TASK_LIST::Add(MB_TASKTYPE type)
 {
     //Задание для потока
@@ -70,6 +74,7 @@ void MB_TASK_LIST::Add(MB_TASKTYPE type)
     Put(task);
 }
 //---------------------------------------------------------------------------
+//Посылка сообщения
 void MB_TASK_LIST::AddSendMsg(AnsiString id,AnsiString text,MAX_PEER_TYPE peerType)
 {
     //Задание для потока
@@ -81,6 +86,7 @@ void MB_TASK_LIST::AddSendMsg(AnsiString id,AnsiString text,MAX_PEER_TYPE peerTy
     Put(task);
 }
 //---------------------------------------------------------------------------
+//Чтение сообщений
 void MB_TASK_LIST::AddReadMsg(void)
 {
     //Задание для потока
@@ -89,6 +95,7 @@ void MB_TASK_LIST::AddReadMsg(void)
     Put(task);
 }
 //---------------------------------------------------------------------------
+//Информация о себе
 void MB_TASK_LIST::AddGetMe(void)
 {
     //Задание для потока
@@ -97,6 +104,7 @@ void MB_TASK_LIST::AddGetMe(void)
     Put(task);
 }
 //---------------------------------------------------------------------------
+//Посылка файла картинки
 void MB_TASK_LIST::AddSendPhoto(AnsiString id,AnsiString filename,AnsiString caption,MAX_PEER_TYPE peerType)
 {
     //Задание для потока
@@ -109,6 +117,7 @@ void MB_TASK_LIST::AddSendPhoto(AnsiString id,AnsiString filename,AnsiString cap
     Put(task);
 }
 //---------------------------------------------------------------------------
+//Посылка файла документа
 void MB_TASK_LIST::AddSendDoc(AnsiString id,AnsiString filename,AnsiString caption,MAX_PEER_TYPE peerType)
 {
     //Задание для потока
