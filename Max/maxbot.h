@@ -90,6 +90,17 @@ public:
     //Результаты последнего действия
     AnsiString ResponseText;
     int ResponseCode;
+    //Последний реальный ответ MAX API
+    AnsiString GetResponseText(void)
+    {
+        if(Api)return MaxAnsiFromUtf8(Api->GetLastResponseBody());
+        return ResponseText;
+    }
+    int GetResponseCode(void)
+    {
+        if(Api)return Api->GetLastStatusCode();
+        return ResponseCode;
+    }
     //Идентификатор разработчика бота
     __property AnsiString BotApi={read=FBotApi,write=SetBotApi};
     //Период чтения сообщений с MAX сервера, с
@@ -123,7 +134,7 @@ class MAX_BOT
     UINT FPeriodReadMessages;
     void SetPeriodReadMessages(UINT period);
     //Прочитать JSON
-    AnsiString GetJson(void){if(Thread)return Thread->ResponseText;return "";}
+    AnsiString GetJson(void){if(Thread)return Thread->GetResponseText();return "";}
     //Временно не выполнять периодическое чтение сообщений с сервера
     bool FPeriodicReadMessagesPaused;
     void SetPeriodicReadMessagesPaused(bool v);
