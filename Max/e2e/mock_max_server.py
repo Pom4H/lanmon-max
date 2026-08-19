@@ -9,8 +9,14 @@ from urllib.parse import urlparse, parse_qs
 # The client must send this value only to Bot API endpoints.
 TOKEN = "e2e-secret-token"
 
-# Cross-request state proves Long Poll continuity and records outgoing operations.
-state = {"poll": 0, "received": [], "uploads": []}
+# Cross-request state proves Long Poll continuity, upload count and retry behavior.
+state = {
+    "poll": 0,
+    "received": [],
+    "uploads": [],
+    "file_uploads": 0,
+    "attachment_retry": 0,
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -119,8 +125,18 @@ class Handler(BaseHTTPRequestHandler):
                 "size": len(raw),
                 "authorization": self.headers.get("Authorization"),
             })
-            token = "image-e2e-token" if kind == "image" else "file-e2e-token"
-            return self.reply(200, {"token": token})
+
+            if kind == "image":
+                return self.reply(200, {"token": "image-e2e-token"})
+
+            # First file is a normal send, second file exercises attachment.not.ready.
+            # Any third file upload means the client incorrectly re-uploaded on retry.
+            state["file_uploads"] += 1
+            if state["file_uploads"] == 1:
+                return self.reply(200, {"token": "file-e2e-token"})
+            if state["file_uploads"] == 2:
+                return self.reply(200, {"token": "file-retry-token"})
+            return self.reply(409, {"code": "unexpected_reupload_after_attachment_not_ready"})
 
         # Everything below is a Bot API endpoint and requires Authorization.
         if not self.authorized():
@@ -133,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(400, {"code": "unsupported_upload_type", "type": kind})
             port = self.server.server_address[1]
             return self.reply(200, {
-                "url": f"http://127.0.0.1:{port}/upload/{kind}?ticket={kind}-e2e-1"
+                "url": f"http://127.0.0.1:{port}/upload/{kind}?ticket={kind}-e2e-{len(state['uploads'])+1}"
             })
 
         if p.path != "/messages":
@@ -188,6 +204,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(422, {"code": "unexpected_file_type"})
             if (attachments[0].get("payload") or {}).get("token") != "file-e2e-token":
                 return self.reply(422, {"code": "unexpected_file_token"})
+
+        # Second file send intentionally returns attachment.not.ready once.
+        if q.get("user_id") == ["43"] and body.get("attachments"):
+            attachments = body.get("attachments") or []
+            if body.get("text") != "Retry E2E":
+                return self.reply(422, {"code": "unexpected_retry_caption"})
+            if len(attachments) != 1 or attachments[0].get("type") != "file":
+                return self.reply(422, {"code": "unexpected_retry_attachment"})
+            if (attachments[0].get("payload") or {}).get("token") != "file-retry-token":
+                return self.reply(422, {"code": "unexpected_retry_token"})
+            state["attachment_retry"] += 1
+            if state["attachment_retry"] == 1:
+                return self.reply(400, {"code": "attachment.not.ready"})
+            if state["attachment_retry"] == 2:
+                return self.reply(200, {"message": {"body": {"mid": "retry-e2e"}}})
+            return self.reply(409, {"code": "too_many_attachment_retries"})
 
         return self.reply(200, {"message": {"body": {"mid": "sent-e2e"}}})
 
