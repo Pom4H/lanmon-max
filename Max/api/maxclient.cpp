@@ -13,7 +13,9 @@ static std::string BuildAttachmentMessageBody(const std::string & text, const st
 MAX_HTTP_RESPONSE IMaxHttpTransport::PostMultipartFile(const std::string &,
     const std::map<std::string,std::string> &, const std::string &, const std::string &)
 {
-    MAX_HTTP_RESPONSE r; r.Error="multipart upload is not supported by this transport"; return r;
+    MAX_HTTP_RESPONSE r;
+    r.Error="multipart upload is not supported by this transport";
+    return r;
 }
 
 //Создание клиента MAX API
@@ -40,21 +42,30 @@ std::map<std::string,std::string> MAX_API_CLIENT::Headers(bool json) const
     std::map<std::string,std::string> h;
     //MAX принимает token только через Authorization
     h["Authorization"]=Token;
-    if(json) h["Content-Type"]="application/json";
+    if(json)h["Content-Type"]="application/json";
     return h;
 }
 
 //Проверка transport/HTTP результата
 bool MAX_API_CLIENT::CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & error)
 {
+    //Успешная новая операция не должна оставлять текст старой ошибки
+    error.clear();
     //Сохраняем последний ответ для свойства MAX_BOT::Json и диагностики UI
     LastStatusCode=r.StatusCode;
     LastResponseBody=r.Body;
-    if(!r.Error.empty()) { error=r.Error; return false; }
-    if(r.StatusCode<200 || r.StatusCode>=300) {
-        std::ostringstream os; os << "MAX HTTP " << r.StatusCode;
-        if(!r.Body.empty()) os << ": " << r.Body;
-        error=os.str(); return false;
+    if(!r.Error.empty())
+    {
+        error=r.Error;
+        return false;
+    }
+    if(r.StatusCode<200 || r.StatusCode>=300)
+    {
+        std::ostringstream os;
+        os << "MAX HTTP " << r.StatusCode;
+        if(!r.Body.empty())os << ": " << r.Body;
+        error=os.str();
+        return false;
     }
     return true;
 }
@@ -62,9 +73,16 @@ bool MAX_API_CLIENT::CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & er
 //Получить информацию о боте
 bool MAX_API_CLIENT::GetMe(MAX_BOT_INFO & info, std::string & error)
 {
-    if(!Transport) { error="MAX transport is null"; LastStatusCode=0; LastResponseBody.clear(); return false; }
-    MAX_HTTP_RESPONSE r=Transport->Get(WithBaseUrl("https://platform-api2.max.ru/me"),Headers(false));
-    if(!CheckResponse(r,error)) return false;
+    if(!Transport)
+    {
+        error="MAX transport is null";
+        LastStatusCode=0;
+        LastResponseBody.clear();
+        return false;
+    }
+    MAX_HTTP_RESPONSE r=Transport->Get(
+        WithBaseUrl("https://platform-api2.max.ru/me"),Headers(false));
+    if(!CheckResponse(r,error))return false;
     //Декодирование JSON ответа /me
     return MaxParseBotInfo(r.Body,info,error);
 }
@@ -72,23 +90,41 @@ bool MAX_API_CLIENT::GetMe(MAX_BOT_INFO & info, std::string & error)
 //Получить обновления через Long Polling
 bool MAX_API_CLIENT::Poll(MAX_UPDATES & updates, std::string & error, int timeoutSeconds, int limit)
 {
-    if(!Transport) { error="MAX transport is null"; LastStatusCode=0; LastResponseBody.clear(); return false; }
+    if(!Transport)
+    {
+        error="MAX transport is null";
+        LastStatusCode=0;
+        LastResponseBody.clear();
+        return false;
+    }
     //Если marker уже получен, передаём его серверу как курсор следующего чтения
     std::string url=MaxBuildUpdatesUrl(HasMarker,Marker,timeoutSeconds,limit);
     MAX_HTTP_RESPONSE r=Transport->Get(WithBaseUrl(url),Headers(false));
-    if(!CheckResponse(r,error)) return false;
+    if(!CheckResponse(r,error))return false;
     //Получение сообщений из JSON ответа сервера
-    if(!MaxParseUpdates(r.Body,updates,error)) return false;
-    //Сохранить marker для следующего чтения
-    if(updates.HasMarker) { HasMarker=true; Marker=updates.Marker; }
+    if(!MaxParseUpdates(r.Body,updates,error))return false;
+    //Сохранить marker только после успешно разобранного ответа
+    if(updates.HasMarker)
+    {
+        HasMarker=true;
+        Marker=updates.Marker;
+    }
     return true;
 }
 
 //Послать текстовое сообщение
 bool MAX_API_CLIENT::SendMessage(const MAX_PEER & peer, const std::string & utf8Text, std::string & error)
 {
-    if(!Transport) { error="MAX transport is null"; LastStatusCode=0; LastResponseBody.clear(); return false; }
-    MAX_HTTP_RESPONSE r=Transport->Post(WithBaseUrl(MaxBuildSendMessageUrl(peer)),Headers(true),MaxBuildSendMessageBody(utf8Text));
+    if(!Transport)
+    {
+        error="MAX transport is null";
+        LastStatusCode=0;
+        LastResponseBody.clear();
+        return false;
+    }
+    MAX_HTTP_RESPONSE r=Transport->Post(
+        WithBaseUrl(MaxBuildSendMessageUrl(peer)),Headers(true),
+        MaxBuildSendMessageBody(utf8Text));
     return CheckResponse(r,error);
 }
 
@@ -97,26 +133,36 @@ bool MAX_API_CLIENT::SendUploadedAttachment(const MAX_PEER & peer, const std::st
                                const std::string & utf8Caption, const std::string & uploadType,
                                const std::string & attachmentType, std::string & error)
 {
-    if(!Transport) { error="MAX transport is null"; LastStatusCode=0; LastResponseBody.clear(); return false; }
+    if(!Transport)
+    {
+        error="MAX transport is null";
+        LastStatusCode=0;
+        LastResponseBody.clear();
+        return false;
+    }
 
     //1. Запросить у MAX URL для загрузки файла
     MAX_HTTP_RESPONSE prepare=Transport->Post(
-        WithBaseUrl(std::string("https://platform-api2.max.ru/uploads?type=")+uploadType),Headers(false),"");
-    if(!CheckResponse(prepare,error)) return false;
+        WithBaseUrl(std::string("https://platform-api2.max.ru/uploads?type=")+uploadType),
+        Headers(false),"");
+    if(!CheckResponse(prepare,error))return false;
 
     //2. Получить upload URL из ответа MAX
     std::string uploadUrl;
-    if(!MaxParseUploadUrl(prepare.Body,uploadUrl,error)) return false;
+    if(!MaxParseUploadUrl(prepare.Body,uploadUrl,error))return false;
 
     //3. Послать файл multipart/form-data, поле называется "data"
-    //Upload URL используем без WithBaseUrl: MAX может вернуть отдельный upload-host
+    //Upload URL используем без WithBaseUrl: MAX возвращает отдельный upload-host.
+    //Для multipart документация MAX не требует Authorization на upload-host;
+    //не передаём bot token третьему host без необходимости.
+    std::map<std::string,std::string> uploadHeaders;
     MAX_HTTP_RESPONSE uploaded=Transport->PostMultipartFile(
-        uploadUrl,Headers(false),"data",filename);
-    if(!CheckResponse(uploaded,error)) return false;
+        uploadUrl,uploadHeaders,"data",filename);
+    if(!CheckResponse(uploaded,error))return false;
 
     //4. Получить token загруженного файла
     std::string token;
-    if(!MaxParseUploadToken(uploaded.Body,token,error)) return false;
+    if(!MaxParseUploadToken(uploaded.Body,token,error))return false;
 
     //5. Отправить сообщение с attachment.payload.token
     MAX_HTTP_RESPONSE sent=Transport->Post(
