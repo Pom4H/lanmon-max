@@ -16,7 +16,26 @@ jobs:
         run: |
           g++ --version
           python3 --version
+          openssl version
       - name: MAX API unit tests (C++98) + mirror source check
         run: bash ./Max/tests/run.sh
+      - name: MAX TLS 1.2 with Ministry CA
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="$(mktemp)"
+          if ! timeout 30 openssl s_client \
+            -connect platform-api2.max.ru:443 \
+            -servername platform-api2.max.ru \
+            -verify_hostname platform-api2.max.ru \
+            -verify_return_error \
+            -tls1_2 \
+            -CAfile ./Max/certs/max-ca.pem \
+            </dev/null >"$LOG" 2>&1; then
+            cat "$LOG"
+            exit 1
+          fi
+          cat "$LOG"
+          grep -q 'Verify return code: 0 (ok)' "$LOG"
       - name: MAX HTTP E2E
         run: bash ./Max/e2e/run_e2e.sh
