@@ -18,6 +18,14 @@ def require_comment_count(path, minimum):
     if count < minimum:
         errors.append(f'{path}: only {count} // comment lines, expected at least {minimum}')
 
+def require_hash_comment_count(path, minimum):
+    text=(root/path).read_text(encoding='utf-8')
+    # Do not count the shebang as documentation.
+    count=sum(1 for line in text.splitlines()
+              if line.strip().startswith('#') and not line.strip().startswith('#!'))
+    if count < minimum:
+        errors.append(f'{path}: only {count} # comment lines, expected at least {minimum}')
+
 h=need('maxbot.h',
     'class TMaxBotThread', 'class MAX_BOT', 'MB_TASK_LIST TaskList',
     'void SendMessage(AnsiString id,AnsiString msg);',
@@ -104,8 +112,8 @@ need('UFMaxUserEdit.h', '//Форма редактирования пользо�
 need('UFMaxMsg.cpp', '//Конструктор универсальной формы ввода текста')
 need('UFMaxMsg.h', '//Универсальная форма ввода текста для операций MAX')
 
-#MAX-specific internal API has no Telegram source counterpart, but it must remain
-#documented because it contains the differences a LanMon developer must understand.
+# MAX-specific internal API has no Telegram source counterpart, but it must remain
+# documented because it contains the differences a LanMon developer must understand.
 need('api/maxcore.h',
     '//Тип адресата MAX: личный пользователь или чат',
     '//Ответ GET /updates', '//Преобразование CP1251 LanMon -> UTF-8 MAX')
@@ -127,6 +135,41 @@ need('api/maxindy.cpp',
     '//MAX с 19.07.2026 требует добавить сертификат Минцифры в доверенные.',
     '//HTTP GET', '//HTTP POST', '//Multipart upload файла')
 
+# Tests and E2E are part of the repository code too: each file explains its role/scenario.
+need('tests/test_maxcore.cpp',
+    '// Unit tests protocol-level MAX functions without network or VCL dependencies.',
+    '// URL GET /updates: defaults, marker and API range clamping.',
+    '// Legacy LanMon text is CP1251; MAX JSON is UTF-8.',
+    '// Malformed JSON must fail with a diagnostic string.')
+need('tests/test_maxclient.cpp',
+    '// Unit tests MAX_API_CLIENT behavior through an in-memory HTTP transport.',
+    '// Deterministic transport: returns queued responses and records every request.',
+    '// First Long Poll stores marker returned by MAX.',
+    '// Non-2xx response must propagate as a MAX HTTP diagnostic.')
+need('e2e/e2e_harness.cpp',
+    '// End-to-end test of MAX_API_CLIENT over a real local TCP/HTTP connection.',
+    '// 1. Real HTTP GET /me through the POSIX transport.',
+    '// 4. Second Long Poll must send marker=101; server advances it to 102.')
+need('e2e/posix_http_transport.h',
+    '// Minimal plain-HTTP transport used only by Linux E2E tests.',
+    '// Production LanMon uses TMaxIndyTransport over HTTPS/OpenSSL.')
+need('e2e/posix_http_transport.cpp',
+    '// Socket-level HTTP transport used only to test MAX_API_CLIENT end-to-end on Linux CI.',
+    '// Execute one HTTP/1.1 request over a real TCP socket and return MAX_HTTP_RESPONSE.',
+    '// Normalize chunked body so MAX_API_CLIENT sees the same body shape as with Indy.')
+need('e2e/mock_max_server.py',
+    '"""Local HTTP model of the MAX endpoints exercised by the C++98 E2E harness."""',
+    '# Cross-request state is used to prove Long Poll marker continuity and capture sends.',
+    '# GET /updates models two consecutive Long Poll reads.',
+    '# Second read proves that MAX_API_CLIENT persisted marker=101.')
+need('tests/run.sh',
+    '# Проверка protocol core: JSON, URL, marker, CP1251/UTF-8 и DTO MAX.',
+    '# Структурная проверка зеркала Telegram и обязательных комментариев.')
+need('e2e/run_e2e.sh',
+    '# Build the portable MAX client against the real socket-level test transport.',
+    '# Start deterministic local MAX HTTP model and always stop it on exit/failure.',
+    '# Exercise GET /me, Long Poll marker continuity, send message and HTTP error handling.')
+
 required_comments=[
     '//Состояние потока работы с MAX', '//Поток для работы с MAX',
     '//Прочитанные сообщения с сервера', '//Выполнение заданий',
@@ -142,7 +185,7 @@ for comment in required_comments:
     if comment not in h:
         errors.append(f'maxbot.h: missing mirrored comment {comment!r}')
 
-#Минимальная защита от будущего "рефакторинга", который снова вычистит комментарии.
+# Minimum documentation density protects against a future refactor stripping comments again.
 for path, minimum in {
     'maxbot.h': 35,
     'maxbot.cpp': 70,
@@ -164,8 +207,20 @@ for path, minimum in {
     'api/maxclient.cpp': 15,
     'api/maxindy.h': 10,
     'api/maxindy.cpp': 15,
+    'tests/test_maxcore.cpp': 8,
+    'tests/test_maxclient.cpp': 9,
+    'e2e/e2e_harness.cpp': 7,
+    'e2e/posix_http_transport.h': 5,
+    'e2e/posix_http_transport.cpp': 12,
 }.items():
     require_comment_count(path, minimum)
+
+for path, minimum in {
+    'tests/run.sh': 4,
+    'e2e/run_e2e.sh': 5,
+    'e2e/mock_max_server.py': 12,
+}.items():
+    require_hash_comment_count(path, minimum)
 
 if errors:
     print('MIRROR CHECK FAILED')
