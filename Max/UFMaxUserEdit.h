@@ -8,6 +8,7 @@
 #include <Forms.hpp>
 #include "maxbot.h"
 //---------------------------------------------------------------------------
+//Форма редактирования пользователя/чата MAX
 class TFormMaxUserEdit : public TForm
 {
 __published:
@@ -22,9 +23,12 @@ __published:
     TCheckBox *CheckBoxIsBot;
     TButton *ButtonOk;
     TButton *ButtonCancel;
+    //Заполнить форму данными пользователя
     void __fastcall FormShow(TObject *Sender);
+    //Сохранить изменения пользователя
     void __fastcall ButtonOkClick(TObject *Sender);
 private:
+    //Редактируемый объект пользователя
     MaxUser *User;
 public:
     __fastcall TFormMaxUserEdit(TComponent* Owner,MaxUser *user);
