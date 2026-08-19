@@ -1,16 +1,14 @@
 # Интеграция MAX в LanMon 4
 
-Эта инструкция написана под фактическую структуру legacy LanMon из проекта: C++Builder/VCL, `lanmon4.cbproj`, существующий каталог `Telegram/`, инициализация `TgBot` в `src/forms/main.cpp`, alarm hooks в `src/alarms/Avaria.cpp` и `HistoryAlarm.cpp`.
+Инструкция рассчитана на фактический legacy-проект LanMon: C++Builder/VCL, `lanmon4.cbproj`, существующий каталог `Telegram/`, `TgBot` в `src/forms/main.cpp` и alarm hooks в `src/alarms/Avaria.cpp` / `HistoryAlarm.cpp`.
 
-Цель интеграции — добавить `Max/` рядом с `Telegram/` с минимальным архитектурным diff.
+Цель — добавить `Max/` рядом с `Telegram/` с минимальным архитектурным diff.
 
-> Важно: текущий `TMaxBotThread` получает входящие события через Long Polling для зеркальности с Telegram. По требованиям MAX это режим разработки/тестирования. Для production входящие события нужно перевести на Webhook/relay. Исходящая отправка сообщений и файлов при этом остаётся той же.
+> Текущий `TMaxBotThread` зеркалит Telegram и получает входящие сообщения через Long Polling. Это удобно для первого внедрения и тестирования. Для production MAX входящий transport должен быть переведён на Webhook/relay; исходящая отправка через `MAX_API_CLIENT` остаётся пригодной.
 
----
+## 0. Итоговое размещение
 
-## 0. Что должно получиться
-
-В корне исходников LanMon:
+В исходниках:
 
 ```text
 lanmon/
@@ -27,9 +25,11 @@ lanmon/
       maxcore.h/.cpp
       maxclient.h/.cpp
       maxindy.h/.cpp
+    certs/
+      max-ca.pem
 ```
 
-В каталоге установленного `lanmon4.exe`:
+В установленном LanMon:
 
 ```text
 LanMon4/
@@ -37,17 +37,15 @@ LanMon4/
   MaxBot.ini
   certs/
     max-ca.pem
-  ssleay32.dll / libeay32.dll   # либо другой ABI-совместимый комплект,
-                                 # который использует конкретная версия Indy проекта
+  ssleay32.dll / libeay32.dll   # либо другой ABI-совместимый runtime,
+                                 # который реально использует версия Indy проекта
 ```
+
+`Max/certs/max-ca.pem` уже находится в этом репозитории. Отдельно скачивать сертификат для обычной установки не требуется.
 
 ---
 
-# 1. Скопировать каталог `Max/`
-
-Скопировать содержимое этого репозитория `Max/` в корень исходного проекта LanMon рядом с `Telegram/`.
-
-Не переносить `tests/` и `e2e/` в production-проект C++Builder — они нужны только для CI этого адаптера.
+## 1. Скопировать `Max/` рядом с `Telegram/`
 
 Production-файлы:
 
@@ -64,25 +62,27 @@ Max/api/maxclient.cpp
 Max/api/maxindy.cpp
 ```
 
+`tests/` и `e2e/` в C++Builder project добавлять не нужно.
+
+`Max/certs/max-ca.pem` не компилируется, но должен попасть в install/package LanMon.
+
 ---
 
-# 2. Добавить include path
+## 2. Include path
 
-В `lanmon4.cbproj` сейчас в `IncludePath` уже есть `Telegram`.
-
-Добавить рядом:
+В `lanmon4.cbproj` рядом с уже существующим `Telegram` добавить:
 
 ```text
 Max;Max\api
 ```
 
-То есть фрагмент должен выглядеть примерно так:
+Пример:
 
 ```xml
 <IncludePath>...;Telegram;Max;Max\api;Collection;src\forms;...</IncludePath>
 ```
 
-Это позволяет сохранить тот же стиль include, который уже используется Telegram:
+После этого сохраняется привычный стиль проекта:
 
 ```cpp
 #include "maxbot.h"
@@ -91,9 +91,11 @@ Max;Max\api
 
 ---
 
-# 3. Добавить файлы в `lanmon4.cbproj`
+## 3. Добавить исходники и формы в `lanmon4.cbproj`
 
-В секцию `CppCompile` добавить:
+Проще всего добавить файлы через `Project -> Add to Project` в C++Builder и затем проверить `.cbproj`.
+
+Нужные C++ units:
 
 ```xml
 <CppCompile Include="Max\maxbot.cpp">
@@ -134,7 +136,7 @@ Max;Max\api
 </CppCompile>
 ```
 
-В секцию ресурсов форм добавить:
+DFM resources:
 
 ```xml
 <FormResources Include="Max\UFMaxBot.dfm" />
@@ -143,25 +145,18 @@ Max;Max\api
 <FormResources Include="Max\UFMaxMsg.dfm" />
 ```
 
-Проще и безопаснее сделать это через IDE C++Builder (`Project → Add to Project`) и затем проверить получившийся `.cbproj`.
-
 ---
 
-# 4. Подключить MAX в `main.h`
+## 4. Подключить MAX в `main.h`
 
-Рядом с существующим:
+Рядом с Telegram:
 
 ```cpp
 #include "tgbot.h"
-```
-
-добавить:
-
-```cpp
 #include "maxbot.h"
 ```
 
-В `TMainForm` рядом с `OnTg*` callbacks объявить:
+В `TMainForm` добавить callbacks:
 
 ```cpp
 void __fastcall OnMaxTaskReadMessages(MaxMessage_LIST & msglist);
@@ -173,7 +168,7 @@ void __fastcall OnMaxErrorDebugMessage(AnsiString msg);
 
 ---
 
-# 5. Подключить формы в `main.cpp`
+## 5. Подключить форму MAX в `main.cpp`
 
 Рядом с:
 
@@ -187,7 +182,7 @@ void __fastcall OnMaxErrorDebugMessage(AnsiString msg);
 #include "UFMaxBot.h"
 ```
 
-Если нужен отдельный пункт меню MAX, создать обработчик по образцу `mTgBotClick`:
+Пункт меню можно сделать зеркально Telegram:
 
 ```cpp
 void __fastcall TMainForm::mMaxBotClick(TObject *Sender)
@@ -200,21 +195,17 @@ void __fastcall TMainForm::mMaxBotClick(TObject *Sender)
 }
 ```
 
-Сам пункт меню/Action удобнее добавить через VCL Designer рядом с Telegram.
-
 ---
 
-# 6. Загрузить настройки и назначить callbacks
+## 6. Загрузить `MaxBot.ini` и назначить callbacks
 
-В исходном `main.cpp` Telegram инициализируется блоком `TgBot.Load(...)` + `SetOn*`.
-
-Сразу после него добавить зеркальный MAX-блок:
+Рядом с существующей инициализацией `TgBot`:
 
 ```cpp
-// Загрузка MAX бота
+//Загрузка MAX бота
 MaxBot.Load(WorkDir + "MaxBot.ini");
 
-// Задание обработчиков MAX
+//Обработчики MAX
 MaxBot.SetOnTaskReadMessages(OnMaxTaskReadMessages);
 MaxBot.SetOnPeriodicReadMessages(OnMaxPeriodicReadMessages);
 MaxBot.SetOnGetMe(OnMaxGetMe);
@@ -222,19 +213,13 @@ MaxBot.SetOnDebugMessage(OnMaxDebugMessage);
 MaxBot.SetOnErrorDebugMessage(OnMaxErrorDebugMessage);
 ```
 
-`MAX_BOT` глобально определён в `Max/maxbot.cpp`:
-
-```cpp
-MAX_BOT MaxBot;
-```
-
-Отдельно создавать объект в `main.cpp` не нужно.
+`MAX_BOT MaxBot` уже определён в `Max/maxbot.cpp`. Второй глобальный объект создавать не нужно.
 
 ---
 
-# 7. Добавить callbacks `TMainForm`
+## 7. Callbacks `TMainForm`
 
-По аналогии с Telegram:
+Минимальный вариант:
 
 ```cpp
 void __fastcall TMainForm::OnMaxTaskReadMessages(MaxMessage_LIST & msglist)
@@ -273,315 +258,276 @@ void __fastcall TMainForm::OnMaxErrorDebugMessage(AnsiString msg)
 }
 ```
 
-Ключевой момент: `MaxBot.OnMessages()` вызывается снаружи из `OnMaxPeriodicReadMessages`, как это уже сделано для Telegram. `MAX_BOT` сам не подписывает себя на thread callbacks.
+Важно: как и в Telegram, `MAX_BOT` не забирает callbacks себе. `MaxBot.OnMessages()` вызывается из `MainForm`.
 
 ---
 
-# 8. Подключить сертификат Минцифры к Indy/OpenSSL
+## 8. Сертификат Минцифры: что именно сделать
 
-## 8.1 Почему одного Windows Certificate Store недостаточно
+### 8.1 Сертификат уже в репозитории
 
-`TMaxIndyTransport` использует:
+Использовать:
 
-```cpp
-TIdSSLIOHandlerSocketOpenSSL
+```text
+Max/certs/max-ca.pem
 ```
 
-У старого Indy/OpenSSL trust store задаётся через `SSLOptions->RootCertFile`. Поэтому для этой интеграции сертификат задаётся явным PEM-файлом.
+Bundle содержит:
 
-Transport уже ищет файл по фиксированному пути:
+```text
+Russian Trusted Sub CA
+SHA-256: BBBDE2103E790B999EC62BD03CF625A5A2E7C316E10AFE6A490EEDEAD8B3FD9B
+
+Russian Trusted Root CA
+SHA-256: D26D2D0231B7C39F92CC738512BA54103519E4405D68B5BD703E9788CA8ECF31
+```
+
+Подробности и процедура ротации: `Max/certs/README.md`.
+
+### 8.2 Куда положить при установке LanMon
+
+`TMaxIndyTransport` ищет trust bundle **относительно `Application->ExeName`**:
+
+```cpp
+AnsiString rootCert=
+    ExtractFilePath(Application->ExeName)+"certs\\max-ca.pem";
+```
+
+Поэтому при deployment обязательно скопировать:
+
+```text
+Max/certs/max-ca.pem
+```
+
+в:
 
 ```text
 <каталог lanmon4.exe>\certs\max-ca.pem
 ```
 
-То есть если exe находится здесь:
+Пример:
 
 ```text
 C:\Program Files (x86)\LanMon 4\lanmon4.exe
-```
-
-нужен файл:
-
-```text
 C:\Program Files (x86)\LanMon 4\certs\max-ca.pem
 ```
 
-В `TMaxIndyTransport` при наличии файла автоматически выполняется эквивалент:
+### 8.3 Что делает код
+
+Если bundle найден:
 
 ```cpp
 Ssl->SSLOptions->RootCertFile=rootCert;
 Ssl->SSLOptions->VerifyMode=TIdSSLVerifyModeSet()<<sslvrfPeer;
 Ssl->SSLOptions->VerifyDepth=9;
+Ssl->SSLOptions->Method=sslvTLSv1_2;
 ```
 
-## 8.2 Где взять сертификат
-
-MAX с 19 июля 2026 требует использовать `platform-api2.max.ru` и добавить сертификат Минцифры в доверенные.
-
-Не следует класть случайный сертификат из браузера или копировать leaf-сертификат `platform-api2.max.ru`.
-
-Нужно получить актуальный доверенный сертификат/цепочку Минцифры из официального источника, указанного MAX/Минцифры, и сформировать CA bundle.
-
-Сертификат в репозиторий **не добавляется**: он является внешней эксплуатационной зависимостью и может обновляться.
-
-## 8.3 Формат `max-ca.pem`
-
-`RootCertFile` для OpenSSL должен быть PEM-файлом. Он выглядит так:
+Если файла **нет**, transport работает fail-closed. HTTP-запрос не выполняется, а наружу возвращается:
 
 ```text
------BEGIN CERTIFICATE-----
-...
------END CERTIFICATE-----
+MAX CA bundle not found: <полный путь>
 ```
 
-Если официальный файл скачан в DER `.cer`, преобразовать его можно установленным OpenSSL:
+То есть отсутствие сертификата больше не превращается в незаметно ослабленную TLS-проверку.
 
-```bat
-openssl x509 -inform DER -in mincifry.cer -out max-ca.pem
+### 8.4 Проверить bundle до сборки
+
+В checkout адаптера:
+
+```bash
+bash Max/tests/test_cert.sh
 ```
 
-Если `.cer` уже PEM, преобразование не требуется — достаточно сохранить/переименовать его как `max-ca.pem`.
+Проверяются fingerprints, срок действия, CN и цепочка Sub CA -> Root CA.
 
-Если для цепочки нужны несколько CA-сертификатов, `max-ca.pem` может содержать несколько последовательных блоков:
+CI дополнительно устанавливает TLS 1.2 соединение с `platform-api2.max.ru` именно через этот `max-ca.pem`.
+
+### 8.5 OpenSSL DLL старого Indy
+
+`TIdSSLIOHandlerSocketOpenSSL` зависит от OpenSSL ABI своей версии Indy.
+
+Нельзя просто заменить старые `ssleay32.dll/libeay32.dll` на OpenSSL 3.x. Для первого внедрения использовать ABI-совместимый runtime, который соответствует фактической версии Indy LanMon.
+
+После сборки проверить на целевой Windows:
 
 ```text
------BEGIN CERTIFICATE-----
-... certificate 1 ...
------END CERTIFICATE-----
------BEGIN CERTIFICATE-----
-... certificate 2 ...
------END CERTIFICATE-----
+1. certs\max-ca.pem существует рядом с exe;
+2. OpenSSL DLL загружаются;
+3. GetMe проходит;
+4. без/с испорченным max-ca.pem соединение не проходит;
+5. в lanmon.log нет TLS/OpenSSL errors.
 ```
 
-## 8.4 OpenSSL DLL
-
-`IdSSLOpenSSL` зависит от OpenSSL DLL, совместимых с конкретной версией Indy, с которой собран LanMon.
-
-Не нужно просто заменять старые DLL на OpenSSL 3.x: старый `IdSSLOpenSSL` использует конкретный ABI.
-
-Для первого внедрения использовать тот же совместимый OpenSSL runtime, с которым уже работает существующий LanMon/Telegram, и отдельно проверить соединение с `platform-api2.max.ru`.
-
-## 8.5 Проверка сертификата
-
-После установки `max-ca.pem`:
-
-1. запустить LanMon;
-2. открыть настройки MAX;
-3. ввести Bot Token;
-4. выполнить `GetMe`;
-5. убедиться, что вернулись `Id`, имя и username бота;
-6. проверить `lanmon.log` на отсутствие TLS/OpenSSL ошибок.
-
-Если `GetMe` не проходит:
-
-```text
-1. проверить существование certs\max-ca.pem относительно lanmon4.exe;
-2. проверить, что файл PEM, а не бинарный DER;
-3. проверить цепочку сертификатов;
-4. проверить совместимость OpenSSL DLL с IdSSLOpenSSL;
-5. проверить доступ к platform-api2.max.ru:443;
-6. проверить системное время Windows;
-7. проверить proxy/firewall/SSL inspection.
-```
-
-> Примечание безопасности: `sslvrfPeer` включает проверку доверенной цепочки. Проверку hostname необходимо отдельно подтвердить на фактической версии Indy/OpenSSL, используемой LanMon; старые сборки Indy не следует автоматически считать эквивалентными современному браузеру по всем TLS-проверкам.
+Старые сборки Indy могут отличаться по hostname verification, поэтому это отдельно проверяется acceptance-тестом на фактическом toolchain заказчика.
 
 ---
 
-# 9. Firewall / proxy
+## 9. Firewall / proxy
 
-Для обычных API-запросов разрешить исходящий HTTPS к:
+Минимально разрешить исходящий HTTPS:
 
 ```text
 platform-api2.max.ru:443
 ```
 
-Для вложений одного этого недостаточно: MAX возвращает отдельный upload URL, который должен использоваться без изменений.
+Для вложений MAX возвращает отдельный upload URL. Его нельзя переписывать на Bot API host.
 
-В документации MAX сейчас указаны upload hosts:
+Используемые типы могут приводить, например, к:
 
 ```text
-file        → fu.oneme.ru
-image       → iu.oneme.ru
-video/audio → vu.okcdn.ru
+image -> iu.oneme.ru
+file  -> fu.oneme.ru
 ```
 
-Поэтому firewall/proxy должен разрешать HTTPS как минимум к используемым типам upload-hosts.
+Поэтому корпоративный firewall/proxy должен пропускать и реальные upload hosts.
 
-Если корпоративный proxy выполняет TLS inspection, его CA также должен быть доверен тем OpenSSL trust bundle, которым пользуется LanMon, либо inspection для этих адресов должен быть отключён согласно политике заказчика.
+Bot token на upload-host адаптер **не отправляет**.
+
+При TLS inspection корпоративный CA должен быть учтён отдельно; бездумно отключать `sslvrfPeer` нельзя.
 
 ---
 
-# 10. Создать `MaxBot.ini`
+## 10. `MaxBot.ini`
 
 Минимальный пример:
 
 ```ini
 [SETUP]
 Active=1
-BotApi=PUT_MAX_BOT_TOKEN_HERE
-PeriodReadMessages=10
-SendAlarms=0
-SendAlarmEnd=0
+BotApi=<MAX_BOT_TOKEN>
+PeriodReadMessages=5
+SendAlarms=1
+SendAlarmEnd=1
 OperatorAlarm=0
-AlarmAlias=
-RequestAlias=
+AlarmAlias=*
+RequestAlias=*
 SendMaps=1
 UseLanmonLog=1
-```
 
-После первого сохранения через форму будут записаны данные бота и пользователи.
-
-Для пользователя дополнительно хранится MAX-специфичное поле:
-
-```ini
+[User0]
+Id=123456789
+Name=Иван
+Alias=OPERATOR
+Comment=
+IsBot=0
+InCount=0
+OutCount=0
+Tag=0
 PeerType=user
 ```
 
-или:
+Для группового/чатового адресата:
 
 ```ini
 PeerType=chat
 ```
 
-Оно выбирает адресацию `user_id` / `chat_id`.
-
-Токен нельзя коммитить в Git или писать в обычные диагностические сообщения.
+`BotApi`/`BotToken` — секрет. Не коммитить реальный токен.
 
 ---
 
-# 11. Подключить alarm hooks
+## 11. Алармы
 
-## `src/alarms/Avaria.cpp`
+Точки вызова должны быть зеркальны Telegram.
 
-Рядом с существующим Telegram:
-
-```cpp
-if(TgBot.FlagSendAlarms)
-    TgBot.OnNewAlarmState(mess);
-```
-
-добавить:
+В местах, где сейчас вызывается Telegram notification при изменении alarm state, добавить MAX-вызов с тем же текстом и теми же условиями:
 
 ```cpp
-if(MaxBot.FlagSendAlarms)
-    MaxBot.OnNewAlarmState(mess);
+if(MaxBot.Active && MaxBot.FlagSendAlarms)
+    MaxBot.OnNewAlarmState(message);
 ```
 
-В обработке подтверждения аварии рядом с `TgBot.FlagOperatorAlarm`:
+Для завершения аварии учитывать `FlagSendAlarmsEnd`, для операторского подтверждения — `FlagOperatorAlarm`, так же как в существующей Telegram-логике.
 
-```cpp
-if(MaxBot.FlagOperatorAlarm)
-    MaxBot.OnNewAlarmState(mess);
-```
-
-## `src/alarms/HistoryAlarm.cpp`
-
-Рядом с `TgBot.FlagSendAlarmsEnd`:
-
-```cpp
-if(MaxBot.FlagSendAlarmsEnd)
-    MaxBot.OnNewAlarmState(mess);
-```
-
-Не переносить точки принятия решения внутрь MAX: решение «какое событие считать аварией» остаётся в LanMon, как и для Telegram.
+Не переносить alarm decision logic внутрь MAX transport.
 
 ---
 
-# 12. FastScript
+## 12. FastScript
 
-Для минимального первого внедрения новая регистрация FastScript **не обязательна**.
-
-`MAX_BOT::OnMessages` сейчас намеренно вызывает существующий:
+Для первого внедрения MAX сохраняет существующий callback:
 
 ```cpp
-OnTgMessage(update_id,id,text);
+OnTgMessage((int)msg->update_id,scriptid,msg->Text);
 ```
 
-То есть существующие пользовательские обработчики сообщений продолжают работать.
+Это сделано намеренно, чтобы существующие LanMon scripts продолжали получать сообщения без обязательной миграции FastScript API.
 
-Если заказчику нужен отдельный MAX API в скриптах, вторым этапом можно добавить зеркальные:
+Если позже понадобится отдельный MAX API для scripts, его лучше добавлять отдельным изменением после принятия первой интеграции.
+
+---
+
+## 13. Кодировка
+
+Legacy LanMon использует `AnsiString`/CP1251, MAX API — UTF-8.
+
+Исходящие строки:
 
 ```text
-OnMaxMessage
-MaxSendMessage
-MaxSendPhoto
-MaxSendDoc
-MaxUserCount
-MaxGetUser
-...
+AnsiString / CP1251 -> MaxUtf8FromCp1251 -> JSON UTF-8
 ```
 
-Это лучше делать отдельным diff после того, как базовая MAX-интеграция собрана и проверена.
+Входящие строки MAX преобразуются обратно для VCL/FastScript слоя.
+
+Русские команды `ЭКРАН`, `КАРТА`, `СТОП`, `ЖУРНАЛ`, `ТРЕВОГИ` должны проверяться на реальном Windows build, потому что это граница UTF-8/CP1251 и старого `AnsiString`.
 
 ---
 
-# 13. Первый запуск
+## 14. Long Polling и production Webhook
 
-Рекомендуемый порядок:
-
-1. `Active=0`.
-2. Собрать LanMon с `Max/`.
-3. Положить `certs\max-ca.pem` рядом с установленным exe.
-4. Проверить OpenSSL DLL.
-5. Запустить LanMon.
-6. Открыть окно MAX.
-7. Ввести token.
-8. Выполнить `GetMe`.
-9. Включить `Active`.
-10. Отправить тестовое сообщение боту.
-11. Проверить `HELP`.
-12. Проверить `SCREEN`.
-13. Проверить `MAP`.
-14. Проверить отправку PDF/HTML/XLS.
-15. Включить тестового пользователя в `AlarmAlias` и проверить alarm fan-out.
-16. Только после этого включать аварийные уведомления для реальных адресатов.
-
----
-
-# 14. Что проверить перед передачей заказчику
+Текущий зеркальный `TMaxBotThread` использует:
 
 ```text
-[ ] Max/ и Max/api добавлены в IncludePath
-[ ] все .cpp добавлены в lanmon4.cbproj
-[ ] все UFMax*.dfm добавлены как FormResources
-[ ] main.h содержит maxbot.h и OnMax* callbacks
-[ ] main.cpp загружает MaxBot.ini
-[ ] main.cpp назначает SetOn* callbacks
-[ ] OnMaxPeriodicReadMessages вызывает MaxBot.OnMessages
-[ ] alarm hooks добавлены в Avaria.cpp и HistoryAlarm.cpp
-[ ] token не находится в репозитории
+GET /updates
+```
+
+Это оставлено для минимального diff с Telegram и простого первого запуска.
+
+Production-архитектура должна быть:
+
+```text
+MAX Webhook
+    -> публичный HTTPS relay
+    -> защищённая доставка в LanMon
+    -> MaxMessage_LIST / MAX_BOT::OnMessages
+```
+
+При таком переходе `MAX_BOT`, команды, пользователи, aliases, alarms и исходящая отправка не должны переписываться; меняется источник входящих events.
+
+---
+
+## 15. Проверка перед передачей
+
+В репозитории адаптера:
+
+```bash
+bash Max/tests/run.sh
+bash Max/e2e/run_e2e.sh
+```
+
+На целевой Windows/C++Builder:
+
+```text
+[ ] lanmon4.cbproj собирается
+[ ] DFM формы открываются
 [ ] certs\max-ca.pem установлен рядом с exe
-[ ] peer certificate verification включился через RootCertFile
-[ ] GET /me работает на platform-api2.max.ru
-[ ] отправка текста работает
-[ ] image upload работает
-[ ] file upload работает
-[ ] firewall разрешает upload-hosts
-[ ] русский текст проходит CP1251 ↔ UTF-8
-[ ] aliases и RequestAlias проверены
-[ ] production-схема Webhook/relay согласована отдельно
+[ ] GetMe проходит через настоящий MAX
+[ ] без корректного CA GetMe не проходит
+[ ] личный чат работает
+[ ] групповой chat_id работает
+[ ] SCREEN / ЭКРАН
+[ ] MAP / КАРТА
+[ ] STOP / СТОП
+[ ] LOG / ЖУРНАЛ
+[ ] LOGXLS
+[ ] ALARM / ТРЕВОГИ
+[ ] HELP / ?
+[ ] alarm fan-out по AlarmAlias
+[ ] image upload
+[ ] PDF/file upload
+[ ] большой attachment переживает attachment.not.ready retry
+[ ] lanmon.log не содержит TLS/OpenSSL ошибок
 ```
 
----
-
-# 15. Production и Webhook
-
-Зеркальный `TMaxBotThread` оставлен на Long Polling специально, чтобы интеграционный diff был похож на Telegram.
-
-Но production MAX требует Webhook. Для desktop/on-prem LanMon рекомендуемая схема:
-
-```text
-MAX
-  ↓ HTTPS Webhook
-public relay
-  ↓ authenticated internal delivery
-LanMon
-  ↓
-MaxMessage_LIST
-  ↓
-MaxBot.OnMessages(...)
-```
-
-При такой схеме команды, пользователи, aliases, alarms и исходящая отправка не переписываются. Меняется только транспорт входящих событий.
+Подробная автоматизированная матрица: `Max/TESTING.md`.
