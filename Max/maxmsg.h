@@ -6,7 +6,7 @@
 #include <windows.h>
 #include <time.h>
 #include <vector>
-#include "../maxcore.h"
+#include "maxcore.h"
 //---------------------------------------------------------------------------
 static AnsiString MaxAnsiFromUtf8(const std::string &s)
 {
