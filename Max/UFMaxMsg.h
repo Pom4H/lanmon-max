@@ -7,6 +7,7 @@
 #include <StdCtrls.hpp>
 #include <Forms.hpp>
 //---------------------------------------------------------------------------
+//Универсальная форма ввода текста для операций MAX
 class TFormMaxMsg : public TForm
 {
 __published:
@@ -16,6 +17,7 @@ __published:
     TButton *ButtonCancel;
 private:
 public:
+    //Конструктор
     __fastcall TFormMaxMsg(TComponent* Owner);
 };
 //---------------------------------------------------------------------------
