@@ -12,6 +12,7 @@
 //---------------------------------------------------------------------------
 #include "maxbot.h"
 //---------------------------------------------------------------------------
+//Форма настройки и диагностики MAX бота
 class TFormMaxBot : public TForm
 {
 __published:
@@ -46,6 +47,7 @@ __published:
     TMemo *MemoJson;
     TStatusBar *StatusBar1;
     TTimer *Timer1;
+    //События формы
     void __fastcall FormShow(TObject *Sender);
     void __fastcall FormClose(TObject *Sender, TCloseAction &Action);
     void __fastcall ButtonEditBotApiClick(TObject *Sender);
@@ -66,18 +68,24 @@ __published:
     void __fastcall TabSheetJsonShow(TObject *Sender);
     void __fastcall Timer1Timer(TObject *Sender);
 private:
+    //Последние прочитанные сообщения для вкладки диагностики
     MaxMessage_LIST MsgList;
+    //Флаг заполнения формы: не применять Change/Click во время FormShow
     bool Busy;
+    //Заполнить список пользователей
     void FillUsers(void);
+    //Показать сообщения
     void ShowMsgList(void);
 public:
+    //Конструктор
     __fastcall TFormMaxBot(TComponent* Owner);
     //Прочитаны сообщения
     void __fastcall OnTaskReadMessages(MaxMessage_LIST & msglist);
     //Получен ответ GetMe
     void __fastcall OnGetMe(MaxBotInfo & botinfo);
-    //Ошибки
+    //Отладочные сообщения
     void __fastcall OnDebugMessage(AnsiString msg);
+    //Ошибки
     void __fastcall OnErrorDebugMessage(AnsiString msg);
 };
 //---------------------------------------------------------------------------
