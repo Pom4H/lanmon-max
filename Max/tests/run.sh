@@ -14,3 +14,7 @@ g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/t
 
 # Структурная проверка зеркала Telegram и обязательных комментариев.
 python3 tests/test_mirror.py
+
+# Поведенческий контракт VCL-кода: порядок callback/auth/gate, команды,
+# alias-логика, alarm fan-out, FIFO задач, PeerType и TLS trust.
+python3 tests/test_contract.py
