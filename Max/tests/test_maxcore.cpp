@@ -1,3 +1,4 @@
+// Unit tests protocol-level MAX functions without network or VCL dependencies.
 #include "../api/maxcore.h"
 #include <iostream>
 #include <cstdlib>
@@ -7,21 +8,28 @@ static int fails=0;
 
 int main()
 {
+    // URL GET /updates: defaults, marker and API range clamping.
     CHECK(MaxBuildUpdatesUrl(false,0,30,100)=="https://platform-api2.max.ru/updates?timeout=30&limit=100&types=message_created");
     CHECK(MaxBuildUpdatesUrl(true,922337203685477000LL,120,5000)=="https://platform-api2.max.ru/updates?timeout=90&limit=1000&marker=922337203685477000&types=message_created");
+
+    // MAX has two address spaces: personal user_id and chat_id.
     CHECK(MaxBuildSendMessageUrl(MAX_PEER(maxPeerUser,123))=="https://platform-api2.max.ru/messages?user_id=123");
     CHECK(MaxBuildSendMessageUrl(MAX_PEER(maxPeerChat,456))=="https://platform-api2.max.ru/messages?chat_id=456");
 
+    // Legacy LanMon text is CP1251; MAX JSON is UTF-8.
     const char cp1251Privet[]={(char)0xCF,(char)0xF0,(char)0xE8,(char)0xE2,(char)0xE5,(char)0xF2,0};
     CHECK(MaxUtf8FromCp1251(cp1251Privet)=="Привет");
 
+    // JSON escaping must preserve quotes, slashes, newlines and tabs.
     std::string body=MaxBuildSendMessageBody("Alarm \"Pump #1\"\\path\nline2\t!");
     CHECK(body=="{\"text\":\"Alarm \\\"Pump #1\\\"\\\\path\\nline2\\t!\"}");
 
+    // GET /me response -> MAX_BOT_INFO.
     MAX_BOT_INFO bi; std::string err;
     CHECK(MaxParseBotInfo("{\"user_id\":42,\"first_name\":\"LanMon\",\"username\":\"lanmon_bot\",\"is_bot\":true}",bi,err));
     CHECK(bi.Id==42 && bi.FirstName=="LanMon" && bi.UserName=="lanmon_bot" && bi.IsBot);
 
+    // /updates: keep only message_created, preserve 64-bit marker and message fields.
     const char * updatesJson=
         "{\"updates\":["
         "{\"update_type\":\"message_created\",\"timestamp\":1720000000123,\"message\":{"
@@ -42,9 +50,11 @@ int main()
         CHECK(up.Messages[0].FirstName=="Ivan");
     }
 
+    // Malformed JSON must fail with a diagnostic string.
     CHECK(!MaxParseUpdates("{broken",up,err));
     CHECK(!err.empty());
 
+    // JSON \uXXXX escapes from MAX are decoded to UTF-8.
     std::string unicodeJson="{\"updates\":[{\"update_type\":\"message_created\",\"timestamp\":1,\"message\":{\"sender\":{\"user_id\":1},\"recipient\":{\"chat_id\":2,\"chat_type\":\"dialog\"},\"timestamp\":1,\"body\":{\"mid\":\"m\",\"text\":\"\\u041f\\u0440\\u0438\\u0432\\u0435\\u0442\"}}}],\"marker\":2}";
     CHECK(MaxParseUpdates(unicodeJson,up,err));
     CHECK(up.Messages.size()==1 && up.Messages[0].Text=="Привет");
