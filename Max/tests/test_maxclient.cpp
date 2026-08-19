@@ -20,6 +20,7 @@ class Mock : public IMaxHttpTransport
 public:
     std::vector<Call> Calls;
     std::vector<MAX_HTTP_RESPONSE> Responses;
+    std::vector<unsigned int> Sleeps;
 
     MAX_HTTP_RESPONSE Next(const char * method,const std::string & url,
         const std::map<std::string,std::string> & headers,const std::string & body,
@@ -61,6 +62,11 @@ public:
         const std::string & filename)
     {
         return Next("MULTIPART",url,headers,"",fieldName,filename);
+    }
+
+    virtual void SleepMilliseconds(unsigned int milliseconds)
+    {
+        Sleeps.push_back(milliseconds);
     }
 };
 
@@ -223,6 +229,49 @@ int main()
     CHECK(mock.Calls[fileStart+2].Body.find("\"type\":\"file\"")!=std::string::npos);
     CHECK(mock.Calls[fileStart+2].Body.find("file-token")!=std::string::npos);
 
+    // attachment.not.ready retries only the final POST with the same token.
+    // The expensive multipart upload must happen exactly once.
+    size_t retryStart=mock.Calls.size();
+    size_t retrySleepStart=mock.Sleeps.size();
+    mock.Responses.push_back(Response(200,"{\"url\":\"https://fu.oneme.ru/retry\"}"));
+    mock.Responses.push_back(Response(200,"{\"token\":\"same-token\"}"));
+    mock.Responses.push_back(Response(400,"{\"code\":\"attachment.not.ready\"}"));
+    mock.Responses.push_back(Response(200,"{\"message\":{}}"));
+    CHECK(api.SendFile(MAX_PEER(maxPeerUser,7),"large.pdf","Большой файл",error));
+    CHECK(mock.Calls.size()==retryStart+4);
+    CHECK(mock.Calls[retryStart].Method=="POST");
+    CHECK(mock.Calls[retryStart+1].Method=="MULTIPART");
+    CHECK(mock.Calls[retryStart+2].Method=="POST");
+    CHECK(mock.Calls[retryStart+3].Method=="POST");
+    CHECK(mock.Calls[retryStart+2].Body==mock.Calls[retryStart+3].Body);
+    CHECK(mock.Calls[retryStart+2].Body.find("same-token")!=std::string::npos);
+    CHECK(mock.Sleeps.size()==retrySleepStart+1);
+    CHECK(mock.Sleeps[retrySleepStart]==500);
+    CHECK(error.empty());
+    CHECK(api.GetLastStatusCode()==200);
+
+    // Persistent attachment.not.ready stops after four sends with 0.5/1/2 second backoff.
+    size_t exhaustedStart=mock.Calls.size();
+    size_t exhaustedSleepStart=mock.Sleeps.size();
+    mock.Responses.push_back(Response(200,"{\"url\":\"https://iu.oneme.ru/exhaust\"}"));
+    mock.Responses.push_back(Response(200,"{\"token\":\"never-ready\"}"));
+    mock.Responses.push_back(Response(400,"{\"code\":\"attachment.not.ready\"}"));
+    mock.Responses.push_back(Response(400,"{\"code\":\"attachment.not.ready\"}"));
+    mock.Responses.push_back(Response(400,"{\"code\":\"attachment.not.ready\"}"));
+    mock.Responses.push_back(Response(400,"{\"code\":\"attachment.not.ready\"}"));
+    CHECK(!api.SendImage(MAX_PEER(maxPeerChat,-8),"large.png","",error));
+    CHECK(mock.Calls.size()==exhaustedStart+6);
+    CHECK(mock.Calls[exhaustedStart+1].Method=="MULTIPART");
+    CHECK(mock.Calls[exhaustedStart+2].Body==mock.Calls[exhaustedStart+3].Body);
+    CHECK(mock.Calls[exhaustedStart+3].Body==mock.Calls[exhaustedStart+4].Body);
+    CHECK(mock.Calls[exhaustedStart+4].Body==mock.Calls[exhaustedStart+5].Body);
+    CHECK(mock.Sleeps.size()==exhaustedSleepStart+3);
+    CHECK(mock.Sleeps[exhaustedSleepStart]==500);
+    CHECK(mock.Sleeps[exhaustedSleepStart+1]==1000);
+    CHECK(mock.Sleeps[exhaustedSleepStart+2]==2000);
+    CHECK(api.GetLastStatusCode()==400);
+    CHECK(error.find("attachment.not.ready")!=std::string::npos);
+
     // If POST /uploads fails, multipart and message send must not happen.
     size_t failedPrepareStart=mock.Calls.size();
     mock.Responses.push_back(Response(401,"{\"code\":\"unauthorized\"}"));
@@ -245,13 +294,15 @@ int main()
     CHECK(mock.Calls.size()==missingTokenStart+2);
     CHECK(error.find("token")!=std::string::npos);
 
-    // Final attachment send errors are surfaced with the final HTTP response.
+    // Unrelated final errors such as rate limiting are not mistaken for attachment readiness.
     size_t failedSendStart=mock.Calls.size();
+    size_t failedSendSleepStart=mock.Sleeps.size();
     mock.Responses.push_back(Response(200,"{\"url\":\"https://fu.oneme.ru/u2\"}"));
     mock.Responses.push_back(Response(200,"{\"token\":\"ready-later\"}"));
     mock.Responses.push_back(Response(429,"{\"code\":\"too_many_requests\"}"));
     CHECK(!api.SendFile(MAX_PEER(maxPeerUser,1),"x.pdf","",error));
     CHECK(mock.Calls.size()==failedSendStart+3);
+    CHECK(mock.Sleeps.size()==failedSendSleepStart);
     CHECK(api.GetLastStatusCode()==429);
     CHECK(error.find("MAX HTTP 429")!=std::string::npos);
 
