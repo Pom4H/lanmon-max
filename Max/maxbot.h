@@ -3,9 +3,9 @@
 #define maxbotH
 //---------------------------------------------------------------------------
 #include <vcl.h>
-#include "../maxclient.h"
-#include "../maxindy.h"
-#include "../maxsettings.h"
+#include "maxclient.h"
+#include "maxindy.h"
+#include "maxsettings.h"
 #include "maxtask.h"
 #include "maxmsg.h"
 #include "maxuser.h"
@@ -17,11 +17,11 @@ typedef void __fastcall (__closure * TMaxOnGetMe)(MaxBotInfo & botinfo);
 //Состояние потока работы с MAX
 enum MB_THREAD_STATE
 {
-    tsNONE=0,           //Ничего не делаем
-    tsERROR,            //Ошибка
-    tsDONE,             //Поток завершён
-    tsTASK,             //Выполнение задания
-    tsDISABLED          //Запрещён
+    tsNONE=0,
+    tsERROR,
+    tsDONE,
+    tsTASK,
+    tsDISABLED
 };
 //---------------------------------------------------------------------------
 //Поток для работы с MAX
