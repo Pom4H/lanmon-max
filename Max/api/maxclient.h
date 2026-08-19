@@ -31,6 +31,9 @@ public:
                                    const std::map<std::string,std::string> & headers,
                                    const std::string & fieldName,
                                    const std::string & filename);
+    //Пауза между повторными запросами. Production Indy реально ждёт,
+    //тестовые transport могут только записывать требуемые интервалы.
+    virtual void SleepMilliseconds(unsigned int milliseconds);
 };
 
 //Клиент MAX Bot API, независимый от конкретной HTTP-библиотеки
@@ -78,7 +81,8 @@ private:
     std::map<std::string,std::string> Headers(bool json) const;
     //Проверить transport/HTTP результат и сохранить diagnostic response
     bool CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & error);
-    //Общий MAX upload flow: получить URL -> multipart upload -> token -> attachment message
+    //Общий MAX upload flow: получить URL -> multipart upload -> token -> attachment message.
+    //Если MAX отвечает attachment.not.ready, повторяется только финальный POST с тем же token.
     bool SendUploadedAttachment(const MAX_PEER & peer, const std::string & filename, const std::string & utf8Caption,
                                 const std::string & uploadType, const std::string & attachmentType, std::string & error);
 };
