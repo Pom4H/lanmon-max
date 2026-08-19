@@ -74,7 +74,17 @@ int main(int argc,char **argv)
     CHECK(api.SendFile(MAX_PEER(maxPeerUser,42),docFile,"Тревоги E2E",error));
     std::remove(docFile);
 
-    // 7. HTTP error path must propagate server status and body context.
+    // 7. MAX may answer attachment.not.ready just after a large upload.
+    // The mock rejects any second multipart upload, so success proves that the client
+    // reused the same attachment token and retried only POST /messages.
+    const char * retryFile="e2e-retry.pdf";
+    CHECK(WriteFile(retryFile,"PDF-RETRY-E2E-BYTES\n"));
+    error.clear();
+    CHECK(api.SendFile(MAX_PEER(maxPeerUser,43),retryFile,"Retry E2E",error));
+    CHECK(error.empty());
+    std::remove(retryFile);
+
+    // 8. HTTP error path must propagate server status and body context.
     error.clear();
     CHECK(!api.SendMessage(MAX_PEER(maxPeerUser,401),"must fail",error));
     CHECK(error.find("MAX HTTP 401")!=std::string::npos);
