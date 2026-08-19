@@ -4,6 +4,9 @@ set -eu
 # Запускается из любого текущего каталога, но собирает тесты относительно Max/.
 cd "$(dirname "$0")/.."
 
+# Проверка vendored цепочки Минцифры: fingerprints, validity и Sub -> Root.
+bash tests/test_cert.sh
+
 # Проверка protocol core: JSON, URL, marker, CP1251/UTF-8 и DTO MAX.
 g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_maxcore.cpp -o tests/test_maxcore
 ./tests/test_maxcore
