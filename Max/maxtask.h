@@ -20,7 +20,7 @@ enum MB_TASKTYPE
 struct MB_TASK
 {
     MB_TASKTYPE Type;
-    //Идентификатор чата
+    //Идентификатор чата/пользователя
     AnsiString Id;
     //MAX различает user_id и chat_id
     MAX_PEER_TYPE PeerType;
@@ -29,6 +29,7 @@ struct MB_TASK
     //Подпись
     AnsiString Caption;
     MB_TASK(){Type=taskNONE;PeerType=maxPeerUser;}
+    //Копирование задания
     void operator=(MB_TASK & task);
 };
 //---------------------------------------------------------------------------
@@ -38,18 +39,28 @@ class MB_TASK_LIST
     //Список заданий
     TThreadList * List;
 public:
+    //Конструктор
     MB_TASK_LIST();
+    //Деструктор
     ~MB_TASK_LIST();
+    //Извлечение одного задания из списка
     bool Get(MB_TASK & task);
+    //Добавление готового задания в список
     void Put(MB_TASK & task);
+    //Очистить все задания
     void Clear();
+    //Добавить задание без параметров
     void Add(MB_TASKTYPE type);
+    //Посылка сообщения
     void AddSendMsg(AnsiString id,AnsiString text,MAX_PEER_TYPE peerType=maxPeerUser);
+    //Чтение сообщений
     void AddReadMsg(void);
+    //Информация о себе
     void AddGetMe(void);
+    //Посылка файла картинки
     void AddSendPhoto(AnsiString id,AnsiString filename,AnsiString caption,MAX_PEER_TYPE peerType=maxPeerUser);
+    //Посылка файла документа
     void AddSendDoc(AnsiString id,AnsiString filename,AnsiString caption,MAX_PEER_TYPE peerType=maxPeerUser);
 };
-//---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
 #endif
