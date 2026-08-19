@@ -15,6 +15,20 @@ TMaxIndyTransport::TMaxIndyTransport()
     Http=new TIdHTTP(NULL);
     Ssl=new TIdSSLIOHandlerSocketOpenSSL(NULL);
     Ssl->SSLOptions->Method=sslvTLSv1_2;
+
+    // MAX с 19.07.2026 требует добавить сертификат Минцифры в доверенные.
+    // Для legacy LanMon используем явный PEM bundle рядом с executable:
+    //   <каталог lanmon4.exe>\certs\max-ca.pem
+    // TIdSSLIOHandlerSocketOpenSSL старых C++Builder/Indy не следует считать
+    // автоматически использующим Windows Certificate Store.
+    AnsiString rootCert=ExtractFilePath(Application->ExeName)+"certs\\max-ca.pem";
+    if(FileExists(rootCert))
+    {
+        Ssl->SSLOptions->RootCertFile=rootCert;
+        Ssl->SSLOptions->VerifyMode=TIdSSLVerifyModeSet()<<sslvrfPeer;
+        Ssl->SSLOptions->VerifyDepth=9;
+    }
+
     Http->IOHandler=Ssl;
     Http->HandleRedirects=true;
     Http->Request->UserAgent="LanMon MAX adapter";
