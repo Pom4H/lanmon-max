@@ -1,45 +1,40 @@
-# Telegram → MAX functional parity
+# Telegram → MAX: функциональный паритет
 
-This checklist defines **functional parity with the Telegram integration used by LanMon**. It is intentionally about observable messenger/LanMon behavior; VCL form wiring and the concrete C++Builder worker-thread class remain application integration mechanics and are documented in `README.md`.
+Этот checklist фиксирует наблюдаемое поведение Telegram-интеграции LanMon, которое должно сохраняться в MAX.
 
-## Transport and messages
+## Transport / API
 
 - [x] `GetMe`
 - [x] Long Polling `/updates`
-- [x] persistent MAX `marker`
+- [x] MAX `marker`
 - [x] text send
 - [x] image send
-- [x] generic document/file send
-- [x] `user_id` addressing
-- [x] `chat_id` addressing
-- [x] stored peer type for alias/alarm fan-out
+- [x] document/file send
+- [x] `user_id`
+- [x] `chat_id`
+- [x] `PeerType` для сохранённых пользователей
 - [x] JSON escaping
-- [x] CP1251 → UTF-8 conversion
-- [x] HTTP/network error propagation
+- [x] CP1251 → UTF-8
+- [x] UTF-8 → CP1251 для VCL mirror
+- [x] HTTP/network errors
+- [x] последний HTTP status/body для `ResponseCode` / `Json`
 
-## Built-in LanMon commands
+## Команды LanMon
 
-- [x] `SCREEN`
-- [x] `ЭКРАН`
-- [x] monitor screenshot → whole-desktop fallback
-- [x] `MAP`
-- [x] `КАРТА`
-- [x] `STOP`
-- [x] `СТОП`
-- [x] `LOG`
-- [x] `ЖУРНАЛ`
+- [x] `SCREEN` / `ЭКРАН`
+- [x] monitor screenshot → desktop fallback
+- [x] `MAP` / `КАРТА`
+- [x] `STOP` / `СТОП`
+- [x] `LOG` / `ЖУРНАЛ`
 - [x] `LOGXLS`
-- [x] `ALARM`
-- [x] `ТРЕВОГИ`
-- [x] `HELP`
-- [x] `?`
-- [x] lowercase Russian command handling
+- [x] `ALARM` / `ТРЕВОГИ`
+- [x] `HELP` / `?`
+- [x] lowercase Russian commands
 
-## Users and authorization
+## Users / aliases
 
-- [x] user list
 - [x] `Id`
-- [x] `PeerType` (`user`/`chat`, MAX-specific necessity)
+- [x] `PeerType`
 - [x] `Name`
 - [x] `Alias`
 - [x] `Comment`
@@ -47,15 +42,15 @@ This checklist defines **functional parity with the Telegram integration used by
 - [x] `InCount`
 - [x] `OutCount`
 - [x] `Tag`
-- [x] empty alias mask
-- [x] `*` alias mask
-- [x] `!` single-position wildcard
+- [x] пустая alias mask
+- [x] `*`
+- [x] `!` wildcard одного символа
 - [x] `RequestAlias`
 - [x] `AlarmAlias`
 - [x] numeric alias fallback
-- [x] `$N` free-alias generation
+- [x] `$N` free alias
 
-## Bot settings/state
+## Settings / state
 
 - [x] `Active`
 - [x] `PeriodReadMessages`
@@ -65,62 +60,61 @@ This checklist defines **functional parity with the Telegram integration used by
 - [x] `FlagOperatorAlarm`
 - [x] `FlagSendMaps`
 - [x] `UseLanmonLog`
-- [x] bot token
-- [x] bot info
+- [x] bot token/info
 - [x] INI load/save
 - [x] user INI load/save
 - [x] `ReadMessagesCount`
 - [x] `ReadMessagesCountOk`
 - [x] `UserMessageCount`
 
-## Callbacks / FastScript surface
+## Mirror VCL layer
 
-- [x] debug callback
-- [x] error callback
-- [x] task-read callback
-- [x] periodic-read callback
-- [x] getMe callback
-- [x] per-message callback before command authorization/gating
-- [x] `TgSendMessage` equivalent
-- [x] `TgSendPhoto` equivalent
-- [x] `TgSendDoc` equivalent
-- [x] `TgUserCount` equivalent
-- [x] `TgGetUser` equivalent
-- [x] `TgFindUser` equivalent
-- [x] `TgFindUserIndex` equivalent
-- [x] `TgFindUserAlias` equivalent
-- [x] `TgSetUserTag` equivalent
-- [x] `TgUserCanAsk` equivalent
-- [x] `TgUserRcvAlarms` equivalent
-- [x] `TgUserHasValidAlias` equivalent
+- [x] `TMaxBotThread` аналог `TTgBotThread`
+- [x] `MAX_BOT` аналог `TELEGRAM_BOT`
+- [x] task queue `GETME/READMSG/SENDMSG/SENDPHOTO/SENDDOC`
+- [x] debug/error/read/getMe callbacks
+- [x] `OnNewAlarmState`
+- [x] `SendMessageByAlias`
+- [x] `SendPhotoByAlias`
+- [x] `SendDocByAlias`
+- [x] compatibility callback через существующий `OnTgMessage`
+- [x] порядок секций/комментарии повторяют Telegram там, где логика эквивалентна
 
-## Preserved legacy semantics
+## Сохранённая legacy-семантика
 
-- [x] `OnMaxMessage` fires before built-in command checks, matching `OnTgMessage`.
-- [x] `FlagSendMaps` gates **all** built-in Telegram commands, despite its name.
-- [x] built-in commands require a known user matching `RequestAlias`.
-- [x] alarm notifications fan out only to users matching `AlarmAlias`.
-- [x] alias sends update user `OutCount`; received messages update `InCount`.
+- [x] script callback вызывается до проверки built-in commands
+- [x] `FlagSendMaps` блокирует все built-in Telegram-команды, несмотря на название
+- [x] built-in command требует известного пользователя с подходящим `RequestAlias`
+- [x] alarm fan-out идёт только по `AlarmAlias`
+- [x] `OutCount` увеличивается при отправке, `InCount` — при принятом сообщении
 
-## Automated proof
+## Автоматическое доказательство
 
-`tests/test_parity.cpp` checks behavioral parity and edge cases.
+`Max/tests/test_parity.cpp` проверяет behavioral parity и edge cases.
 
-`e2e_lanmon/` uses a real local TCP/HTTP server and checks:
+`Max/e2e/` проверяет настоящий TCP/HTTP MAX flow.
 
-1. eight sequential Long Poll commands and marker continuity;
+`Max/e2e_lanmon/` проверяет:
+
+1. последовательность Long Poll + marker;
 2. text replies;
-3. image upload + attachment send;
-4. file upload + attachment send;
+3. image upload + attachment;
+4. file upload + attachment;
 5. screen fallback;
 6. alarm alias fan-out.
 
-All portable code is compiled with `-std=gnu++98 -Wall -Wextra -Werror` in GitHub Actions.
+Все portable части компилируются в GitHub Actions с:
 
-## Outside portable CI
+```text
+-std=gnu++98 -Wall -Wextra -Werror
+```
 
-The only remaining acceptance boundary is environment-specific, not missing messenger functionality:
+## Что остаётся environment-specific
 
-- compile `maxindy.cpp` with the real legacy C++Builder/Indy toolchain;
-- configure the MAX-required CA certificate;
-- perform a real TLS `GET /me` and one real command round-trip with a MAX bot token.
+Это не отсутствующий функционал, а последняя acceptance boundary:
+
+- собрать `Max/maxbot.cpp` и `Max/maxindy.cpp` реальным legacy C++Builder/Indy;
+- настроить trust store/CA MAX;
+- сделать реальный `GET /me`;
+- принять одно реальное `/updates` сообщение;
+- выполнить команду и проверить text/image/file response.
