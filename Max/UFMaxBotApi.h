@@ -9,6 +9,7 @@
 #include <ExtCtrls.hpp>
 #include "maxbot.h"
 //---------------------------------------------------------------------------
+//Форма ввода и проверки MAX BotApi/token
 class TFormMaxBotApi : public TForm
 {
 __published:
@@ -20,8 +21,11 @@ __published:
     TButton *ButtonOk;
     TButton *ButtonCancel;
     TLabel *LabelHelp;
+    //Инициализация формы текущими данными бота
     void __fastcall FormCreate(TObject *Sender);
+    //Изменён BotApi/token — требуется повторная проверка
     void __fastcall EditBotApiChange(TObject *Sender);
+    //Проверить BotApi запросом GetMe
     void __fastcall ButtonTestBotApiClick(TObject *Sender);
 private:
 public:
