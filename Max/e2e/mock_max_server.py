@@ -6,11 +6,11 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-# The client must send this value only in the Authorization header.
+# The client must send this value only to Bot API endpoints.
 TOKEN = "e2e-secret-token"
 
-# Cross-request state is used to prove Long Poll marker continuity and capture sends.
-state = {"poll": 0, "received": []}
+# Cross-request state proves Long Poll continuity and records outgoing operations.
+state = {"poll": 0, "received": [], "uploads": []}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -30,12 +30,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    # MAX API authentication contract used by the adapter.
+    # MAX Bot API authentication contract used by the adapter.
     def authorized(self):
         return self.headers.get("Authorization") == TOKEN
 
     def do_GET(self):
-        # Every API read in this E2E requires the bot token.
+        # Every Bot API read in this E2E requires the bot token.
         if not self.authorized():
             return self.reply(401, {"code": "unauthorized"})
 
@@ -101,14 +101,40 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(n)
 
+        # Upload-host requests are intentionally separate from Bot API auth.
+        if p.path in ("/upload/image", "/upload/file"):
+            # Multipart mode from MAX docs does not require leaking bot Authorization
+            # to the returned upload host. Fail loudly if the client does it.
+            if self.headers.get("Authorization") is not None:
+                return self.reply(400, {"code": "bot_token_leaked_to_upload_host"})
+            content_type = self.headers.get("Content-Type", "")
+            if "multipart/form-data" not in content_type:
+                return self.reply(415, {"code": "expected_multipart"})
+            if b'name="data"' not in raw:
+                return self.reply(422, {"code": "missing_data_field"})
+            kind = p.path.rsplit("/", 1)[-1]
+            state["uploads"].append({
+                "kind": kind,
+                "query": q,
+                "size": len(raw),
+                "authorization": self.headers.get("Authorization"),
+            })
+            token = "image-e2e-token" if kind == "image" else "file-e2e-token"
+            return self.reply(200, {"token": token})
+
+        # Everything below is a Bot API endpoint and requires Authorization.
         if not self.authorized():
             return self.reply(401, {"code": "unauthorized"})
 
-        # This server endpoint validates JSON text sends; upload flow has separate unit coverage.
-        try:
-            body = json.loads(raw.decode("utf-8"))
-        except Exception as e:
-            return self.reply(400, {"code": "bad_json", "message": str(e)})
+        # POST /uploads returns a one-use URL on a separate upload host.
+        if p.path == "/uploads":
+            kind = q.get("type", [""])[0]
+            if kind not in ("image", "file"):
+                return self.reply(400, {"code": "unsupported_upload_type", "type": kind})
+            port = self.server.server_address[1]
+            return self.reply(200, {
+                "url": f"http://127.0.0.1:{port}/upload/{kind}?ticket={kind}-e2e-1"
+            })
 
         if p.path != "/messages":
             return self.reply(404, {"code": "not_found"})
@@ -117,14 +143,19 @@ class Handler(BaseHTTPRequestHandler):
         if q.get("user_id") == ["401"]:
             return self.reply(401, {"code": "unauthorized_test"})
 
-        # Capture request so a developer can inspect query/body/auth in /_state or CI logs.
+        # Message endpoints require JSON.
+        try:
+            body = json.loads(raw.decode("utf-8"))
+        except Exception as e:
+            return self.reply(400, {"code": "bad_json", "message": str(e)})
+
         state["received"].append({
             "query": q,
             "body": body,
             "authorization": self.headers.get("Authorization"),
         })
 
-        # Reply sent to chat 777 must survive UTF-8 and JSON escaping exactly.
+        # Text reply to chat 777 must survive UTF-8 and JSON escaping exactly.
         if q.get("chat_id") == ["777"]:
             expected = "PONG \"LanMon\"\nПривет из E2E"
             if body.get("text") != expected:
@@ -133,6 +164,30 @@ class Handler(BaseHTTPRequestHandler):
                     "got": body.get("text"),
                     "expected": expected,
                 })
+
+        # Image attachment is routed to a signed group chat id.
+        if q.get("chat_id") == ["-777"]:
+            attachments = body.get("attachments") or []
+            if body.get("text") != "Карта \"1\"":
+                return self.reply(422, {"code": "unexpected_image_caption"})
+            if len(attachments) != 1:
+                return self.reply(422, {"code": "unexpected_image_attachments"})
+            if attachments[0].get("type") != "image":
+                return self.reply(422, {"code": "unexpected_image_type"})
+            if (attachments[0].get("payload") or {}).get("token") != "image-e2e-token":
+                return self.reply(422, {"code": "unexpected_image_token"})
+
+        # File attachment is routed directly to user 42.
+        if q.get("user_id") == ["42"] and body.get("attachments"):
+            attachments = body.get("attachments") or []
+            if body.get("text") != "Тревоги E2E":
+                return self.reply(422, {"code": "unexpected_file_caption"})
+            if len(attachments) != 1:
+                return self.reply(422, {"code": "unexpected_file_attachments"})
+            if attachments[0].get("type") != "file":
+                return self.reply(422, {"code": "unexpected_file_type"})
+            if (attachments[0].get("payload") or {}).get("token") != "file-e2e-token":
+                return self.reply(422, {"code": "unexpected_file_token"})
 
         return self.reply(200, {"message": {"body": {"mid": "sent-e2e"}}})
 
