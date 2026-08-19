@@ -4,10 +4,17 @@
 #include <cstdlib>
 #include <cctype>
 
+//---------------------------------------------------------------------------
+//Минимальный JSON parser для C++98.
+//Нужен потому, что legacy C++Builder LanMon нельзя привязывать к современной
+//JSON-библиотеке только ради MAX API.
+//---------------------------------------------------------------------------
 namespace {
 
+//Тип внутреннего JSON значения
 enum JsonType { jtNull, jtBool, jtNumber, jtString, jtArray, jtObject };
 
+//Универсальное внутреннее представление JSON значения
 struct JsonValue
 {
     JsonType Type;
@@ -19,6 +26,7 @@ struct JsonValue
     JsonValue() : Type(jtNull), BoolValue(false) {}
 };
 
+//Добавить Unicode code point в UTF-8 строку
 static void AppendUtf8(std::string & out, unsigned long cp)
 {
     if(cp <= 0x7F) out += (char)cp;
@@ -37,6 +45,7 @@ static void AppendUtf8(std::string & out, unsigned long cp)
     }
 }
 
+//Рекурсивный JSON parser без C++11
 class JsonParser
 {
     const std::string & S;
@@ -45,6 +54,7 @@ class JsonParser
 public:
     JsonParser(const std::string & s) : S(s), P(0) {}
 
+    //Разобрать один полный JSON документ
     bool Parse(JsonValue & value, std::string & error)
     {
         SkipWs();
@@ -54,10 +64,13 @@ public:
         return true;
     }
 private:
+    //Пропустить пробельные символы
     void SkipWs() { while(P<S.size() && std::isspace((unsigned char)S[P])) ++P; }
+    //Сформировать ошибку с позицией в JSON
     bool Fail(const std::string & msg) {
         std::ostringstream os; os << msg << " at byte " << P; Error=os.str(); return false;
     }
+    //Разобрать значение любого JSON типа
     bool ParseValue(JsonValue & v)
     {
         SkipWs();
@@ -72,6 +85,7 @@ private:
         if(c=='-' || (c>='0' && c<='9')) return ParseNumber(v);
         return Fail("Unexpected JSON token");
     }
+    //Разобрать JSON string, включая \uXXXX
     bool ParseString(std::string & out)
     {
         if(P>=S.size() || S[P]!='\"') return Fail("Expected string");
@@ -107,6 +121,7 @@ private:
         }
         return Fail("Unterminated string");
     }
+    //Разобрать JSON number; значение пока хранится строкой для точного int64
     bool ParseNumber(JsonValue & v)
     {
         size_t start=P;
@@ -124,6 +139,7 @@ private:
         }
         v.Type=jtNumber; v.StringValue=S.substr(start,P-start); return true;
     }
+    //Разобрать JSON array
     bool ParseArray(JsonValue & v)
     {
         v.Type=jtArray; v.ArrayValue.clear(); ++P; SkipWs();
@@ -136,6 +152,7 @@ private:
             ++P;
         }
     }
+    //Разобрать JSON object
     bool ParseObject(JsonValue & v)
     {
         v.Type=jtObject; v.ObjectValue.clear(); ++P; SkipWs();
@@ -153,16 +170,19 @@ private:
     }
 };
 
+//Получить поле JSON object по имени
 static const JsonValue * Field(const JsonValue & o, const char * key)
 {
     if(o.Type!=jtObject) return 0;
     std::map<std::string,JsonValue>::const_iterator it=o.ObjectValue.find(key);
     return it==o.ObjectValue.end()?0:&it->second;
 }
+//Получить строковое поле JSON object
 static std::string Str(const JsonValue & o,const char * key)
 {
     const JsonValue *v=Field(o,key); return (v&&v->Type==jtString)?v->StringValue:"";
 }
+//Получить 64-битное целое поле JSON object
 static max_int64 Int64(const JsonValue & o,const char * key,max_int64 def=0)
 {
     const JsonValue *v=Field(o,key); if(!v || v->Type!=jtNumber) return def;
@@ -172,21 +192,27 @@ static max_int64 Int64(const JsonValue & o,const char * key,max_int64 def=0)
     return (max_int64)std::strtoll(v->StringValue.c_str(),0,10);
 #endif
 }
+//Получить bool поле JSON object
 static bool Bool(const JsonValue & o,const char * key,bool def=false)
 {
     const JsonValue *v=Field(o,key); return (v&&v->Type==jtBool)?v->BoolValue:def;
 }
+//Преобразовать int64 в строку совместимо с C++98
 static std::string I64(max_int64 v)
 {
     std::ostringstream os; os << v; return os.str();
 }
 
 }
-
+//---------------------------------------------------------------------------
+//Очистить информацию о боте
 void MAX_BOT_INFO::Clear() { Id=0; FirstName.clear(); LastName.clear(); UserName.clear(); IsBot=false; }
+//Конструктор нормализованного сообщения
 MAX_MESSAGE::MAX_MESSAGE() : UpdateTimestamp(0), MessageTimestamp(0), ChatId(0), UserId(0), SenderIsBot(false) {}
+//Очистить результат Long Polling
 void MAX_UPDATES::Clear() { HasMarker=false; Marker=0; Messages.clear(); }
 
+//Преобразование одного байта Windows-1251 в Unicode code point
 static unsigned short Cp1251ToUnicodeCore(unsigned char c)
 {
     if(c<0x80) return c;
@@ -218,6 +244,7 @@ static unsigned short Cp1251ToUnicodeCore(unsigned char c)
     return '?';
 }
 
+//Преобразование строки CP1251 LanMon в UTF-8 MAX
 std::string MaxUtf8FromCp1251(const std::string & value)
 {
     std::string out;
@@ -225,6 +252,7 @@ std::string MaxUtf8FromCp1251(const std::string & value)
     return out;
 }
 
+//Экранирование строки для безопасной вставки в JSON
 std::string MaxJsonEscape(const std::string & value)
 {
     static const char hex[]="0123456789abcdef";
@@ -243,8 +271,10 @@ std::string MaxJsonEscape(const std::string & value)
     return out;
 }
 
+//Построить URL Long Polling GET /updates
 std::string MaxBuildUpdatesUrl(bool hasMarker, max_int64 marker, int timeoutSeconds, int limit)
 {
+    //Ограничиваем аргументы диапазонами MAX API
     if(timeoutSeconds<0) timeoutSeconds=0;
     if(timeoutSeconds>90) timeoutSeconds=90;
     if(limit<1) limit=1;
@@ -252,10 +282,12 @@ std::string MaxBuildUpdatesUrl(bool hasMarker, max_int64 marker, int timeoutSeco
     std::ostringstream os;
     os << "https://platform-api2.max.ru/updates?timeout=" << timeoutSeconds << "&limit=" << limit;
     if(hasMarker) os << "&marker=" << marker;
+    //LanMon сейчас обрабатывает входящие сообщения message_created
     os << "&types=message_created";
     return os.str();
 }
 
+//Построить URL отправки сообщения с правильной адресацией MAX
 std::string MaxBuildSendMessageUrl(const MAX_PEER & peer)
 {
     std::string u="https://platform-api2.max.ru/messages?";
@@ -263,11 +295,13 @@ std::string MaxBuildSendMessageUrl(const MAX_PEER & peer)
     u += I64(peer.Id); return u;
 }
 
+//Построить JSON текстового сообщения
 std::string MaxBuildSendMessageBody(const std::string & text)
 {
     return std::string("{\"text\":\"") + MaxJsonEscape(text) + "\"}";
 }
 
+//Получение информации о боте из JSON ответа GET /me
 bool MaxParseBotInfo(const std::string & json, MAX_BOT_INFO & info, std::string & error)
 {
     JsonValue root; JsonParser p(json); info.Clear();
@@ -280,29 +314,36 @@ bool MaxParseBotInfo(const std::string & json, MAX_BOT_INFO & info, std::string 
     return true;
 }
 
+//Получение сообщений из JSON ответа GET /updates
 bool MaxParseUpdates(const std::string & json, MAX_UPDATES & updates, std::string & error)
 {
     JsonValue root; JsonParser p(json); updates.Clear();
     if(!p.Parse(root,error)) return false;
     if(root.Type!=jtObject) { error="Updates response must be a JSON object"; return false; }
+    //Курсор следующего чтения MAX
     const JsonValue * marker=Field(root,"marker");
     if(marker && marker->Type==jtNumber) { updates.HasMarker=true; updates.Marker=Int64(root,"marker"); }
+    //Массив updates
     const JsonValue * arr=Field(root,"updates");
     if(!arr || arr->Type!=jtArray) { error="Updates response has no updates array"; return false; }
     for(size_t i=0;i<arr->ArrayValue.size();++i) {
         const JsonValue & u=arr->ArrayValue[i];
         if(u.Type!=jtObject) continue;
+        //Для Telegram-parity слоя интересуют созданные сообщения
         if(Str(u,"update_type")!="message_created") continue;
         const JsonValue * msg=Field(u,"message"); if(!msg || msg->Type!=jtObject) continue;
         MAX_MESSAGE m; m.UpdateType="message_created"; m.UpdateTimestamp=Int64(u,"timestamp");
         m.MessageTimestamp=Int64(*msg,"timestamp");
+        //Отправитель сообщения
         const JsonValue * sender=Field(*msg,"sender");
         if(sender && sender->Type==jtObject) {
             m.UserId=Int64(*sender,"user_id"); m.FirstName=Str(*sender,"first_name");
             m.LastName=Str(*sender,"last_name"); m.UserName=Str(*sender,"username"); m.SenderIsBot=Bool(*sender,"is_bot");
         }
+        //Чат/получатель
         const JsonValue * recipient=Field(*msg,"recipient");
         if(recipient && recipient->Type==jtObject) { m.ChatId=Int64(*recipient,"chat_id"); m.ChatType=Str(*recipient,"chat_type"); }
+        //Тело сообщения
         const JsonValue * body=Field(*msg,"body");
         if(body && body->Type==jtObject) { m.MessageId=Str(*body,"mid"); m.Text=Str(*body,"text"); }
         updates.Messages.push_back(m);
@@ -310,11 +351,13 @@ bool MaxParseUpdates(const std::string & json, MAX_UPDATES & updates, std::strin
     return true;
 }
 
+//Преобразовать 64-битный идентификатор MAX в строку
 std::string MaxInt64ToString(max_int64 value)
 {
     return I64(value);
 }
 
+//Построить JSON сообщения с image attachment token
 std::string MaxBuildImageMessageBody(const std::string & text, const std::string & token)
 {
     return std::string("{\"text\":\"") + MaxJsonEscape(text) +
@@ -322,6 +365,7 @@ std::string MaxBuildImageMessageBody(const std::string & text, const std::string
            MaxJsonEscape(token) + "\"}}]}";
 }
 
+//Получить upload URL из ответа POST /uploads
 bool MaxParseUploadUrl(const std::string & json, std::string & url, std::string & error)
 {
     JsonValue root; JsonParser p(json); url.clear();
@@ -332,6 +376,7 @@ bool MaxParseUploadUrl(const std::string & json, std::string & url, std::string 
     return true;
 }
 
+//Получить attachment token из ответа upload-host
 bool MaxParseUploadToken(const std::string & json, std::string & token, std::string & error)
 {
     JsonValue root; JsonParser p(json); token.clear();
