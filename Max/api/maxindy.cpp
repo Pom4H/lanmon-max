@@ -27,11 +27,16 @@ TMaxIndyTransport::TMaxIndyTransport()
     AnsiString rootCert=ExtractFilePath(Application->ExeName)+"certs\\max-ca.pem";
     if(FileExists(rootCert))
     {
-        //Корневой/промежуточный bundle для проверки цепочки сертификата MAX
+        //CA bundle должен содержать цепочки, нужные platform-api2.max.ru и upload-hosts.
         Ssl->SSLOptions->RootCertFile=rootCert;
         //Не отключаем TLS verification: проверяем сертификат сервера
         Ssl->SSLOptions->VerifyMode=TIdSSLVerifyModeSet()<<sslvrfPeer;
         Ssl->SSLOptions->VerifyDepth=9;
+    }
+    else
+    {
+        //Fail-closed: без trust bundle нельзя тихо переходить к непроверенному TLS.
+        StartupError="MAX CA bundle not found: "+rootCert;
     }
 
     Http->IOHandler=Ssl;
@@ -45,6 +50,21 @@ TMaxIndyTransport::~TMaxIndyTransport()
 {
     delete Http;
     delete Ssl;
+}
+
+//Проверить обязательную TLS-конфигурацию до сетевого запроса
+bool TMaxIndyTransport::StartupFailed(MAX_HTTP_RESPONSE & response) const
+{
+    if(!StartupError.Length())return false;
+    response.StatusCode=0;
+    response.Error=StartupError.c_str();
+    return true;
+}
+
+//Реальная задержка между повторами MAX attachment.not.ready
+void TMaxIndyTransport::SleepMilliseconds(unsigned int milliseconds)
+{
+    ::Sleep(milliseconds);
 }
 
 //Перенести заголовки MAX_API_CLIENT в TIdHTTP
@@ -80,6 +100,9 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::ReadResponse(TMemoryStream * stream, const 
 //HTTP GET
 MAX_HTTP_RESPONSE TMaxIndyTransport::Get(const std::string & url,const std::map<std::string,std::string> & headers)
 {
+    MAX_HTTP_RESPONSE blocked;
+    if(StartupFailed(blocked))return blocked;
+
     ApplyHeaders(headers);
     TMemoryStream * stream=new TMemoryStream;
     AnsiString ex="";
@@ -96,6 +119,9 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::Get(const std::string & url,const std::map<
 //HTTP POST
 MAX_HTTP_RESPONSE TMaxIndyTransport::Post(const std::string & url,const std::map<std::string,std::string> & headers,const std::string & body)
 {
+    MAX_HTTP_RESPONSE blocked;
+    if(StartupFailed(blocked))return blocked;
+
     ApplyHeaders(headers);
     //JSON MAX отправляется как строковый stream
     TStringStream * input=new TStringStream(AnsiString(body.c_str()));
@@ -116,6 +142,9 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::PostMultipartFile(const std::string & url,
     const std::map<std::string,std::string> & headers,const std::string & fieldName,
     const std::string & filename)
 {
+    MAX_HTTP_RESPONSE blocked;
+    if(StartupFailed(blocked))return blocked;
+
     ApplyHeaders(headers);
     TIdMultiPartFormDataStream * form=new TIdMultiPartFormDataStream;
     TMemoryStream * output=new TMemoryStream;
