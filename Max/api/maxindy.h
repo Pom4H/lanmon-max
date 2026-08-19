@@ -13,6 +13,8 @@ class TMaxIndyTransport : public IMaxHttpTransport
     TIdHTTP * Http;
     //OpenSSL IOHandler; используется также для RootCertFile MAX
     TIdSSLIOHandlerSocketOpenSSL * Ssl;
+    //Ошибка начальной TLS-конфигурации. При ней transport работает fail-closed.
+    AnsiString StartupError;
 public:
     TMaxIndyTransport();
     virtual ~TMaxIndyTransport();
@@ -29,10 +31,14 @@ public:
                                    const std::map<std::string,std::string> & headers,
                                    const std::string & fieldName,
                                    const std::string & filename);
+    //Реальная пауза для retry/backoff attachment.not.ready
+    virtual void SleepMilliseconds(unsigned int milliseconds);
 
     //Доступ к SSL-настройкам для интеграции/диагностики LanMon
     TIdSSLIOHandlerSocketOpenSSL * SSL() { return Ssl; }
 private:
+    //Если обязательный CA bundle не настроен, вернуть ошибку без сетевого запроса
+    bool StartupFailed(MAX_HTTP_RESPONSE & response) const;
     //Перенести map заголовков MAX в TIdHTTP::Request
     void ApplyHeaders(const std::map<std::string,std::string> & headers);
     //Собрать единый MAX_HTTP_RESPONSE из Indy response/exception
