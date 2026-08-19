@@ -1,167 +1,198 @@
 # Матрица тестирования LanMon MAX
 
-Цель тестов — доказать не только корректность отдельных JSON-функций, но и сохранение существующего Telegram-контракта LanMon при замене транспорта на MAX.
+Цель — проверять не количество `CHECK`, а четыре разные границы: протокол MAX, state machine клиента, Telegram-совместимое поведение LanMon и настоящий HTTP/TLS transport.
 
-## Уровень A — protocol core, автоматизировано
+## A. Protocol core — автоматизировано
 
-`tests/test_maxcore.cpp`, C++98 без VCL и сети.
+`Max/tests/test_maxcore.cpp`, C++98 без VCL и сети.
 
 Проверяется:
 
-- `GET /updates` без marker;
-- `GET /updates` с 64-битным marker;
-- границы `timeout`: 0 и 90;
-- границы `limit`: 1 и 1000;
-- адресация `user_id`;
-- адресация `chat_id`;
-- отрицательный `chat_id`;
-- преобразование int64 в строку;
-- CP1251 → UTF-8, включая `Ё/ё`;
-- JSON escaping кавычек, `\\`, `\n`, `\t`, control chars;
-- пустое текстовое сообщение;
-- JSON attachment с caption/token;
-- корректный `GET /me`;
-- отсутствие обязательного `user_id` в `/me`;
-- неправильный top-level JSON;
-- `message_created`;
-- игнорирование посторонних update types;
-- `marker=null`;
-- ответ без marker;
-- `message_created` без объекта message;
-- UTF-8 кириллица;
-- raw UTF-8 emoji;
-- `\\uXXXX` escape;
-- malformed JSON;
-- отсутствие массива `updates`;
-- точное сохранение upload URL с query string;
-- отсутствие `url` в upload response;
-- получение upload token;
-- отсутствие upload token.
+- `GET /updates` с/без 64-bit marker;
+- границы `timeout` и `limit`;
+- `user_id` / signed `chat_id`;
+- int64 conversion;
+- CP1251 -> UTF-8, включая `Ё/ё`;
+- JSON escaping кавычек, slash, newline, tab и control chars;
+- пустое сообщение;
+- attachment JSON и escaping token/caption;
+- `/me` happy path и обязательный `user_id`;
+- `message_created` и игнорирование других update types;
+- `marker=null` и отсутствие marker;
+- malformed/top-level-invalid JSON;
+- строгая JSON number grammar: запрещены `1.`, `1e`, `1e+`, `01`, `-`;
+- `\uXXXX`;
+- UTF-16 surrogate pair `\uD83D\uDE00` -> `😀`;
+- lone/mismatched surrogate rejection;
+- raw UTF-8/emoji;
+- upload URL/token parsing и missing-field errors.
 
-## Уровень B — MAX_API_CLIENT state machine, автоматизировано
+## B. `MAX_API_CLIENT` state machine — автоматизировано
 
-`tests/test_maxclient.cpp`, C++98 + in-memory HTTP transport.
+`Max/tests/test_maxclient.cpp`, C++98 + in-memory HTTP transport.
 
 Проверяется:
 
 - `Transport == NULL`;
-- удаление завершающего `/` у `baseUrl`;
-- токен находится в `Authorization`, а не URL;
-- `GetMe` success;
-- `GetMe` с валидным HTTP и невалидным JSON;
-- очистка stale error после следующего успешного запроса;
-- сохранение `LastStatusCode` и `LastResponseBody`;
-- первый Long Poll сохраняет marker;
-- malformed JSON не сдвигает уже подтверждённый marker;
-- HTTP 503 не сдвигает marker;
-- следующий Poll передаёт предыдущий marker;
+- нормализация `baseUrl`;
+- token только в `Authorization`, не в URL;
+- stale error очищается после успешного запроса;
+- `LastStatusCode` / `LastResponseBody`;
+- marker сохраняется после успешного Poll;
+- malformed JSON / 503 не двигают подтверждённый marker;
+- следующий Poll использует старый marker;
 - `ResetMarker()`;
-- send text пользователю;
-- send text в signed chat id;
-- HTTP 401;
-- transport-level error без HTTP status;
-- полный image upload flow;
-- полный file upload flow;
-- `type=image`, не устаревший `photo`;
-- upload field называется `data`;
-- upload URL используется без переписывания;
-- bot token не передаётся на multipart upload-host;
-- attachment type/token/caption;
-- ошибка `POST /uploads` останавливает pipeline;
-- ошибка upload-host останавливает pipeline;
-- отсутствие upload token останавливает pipeline;
-- ошибка финального `POST /messages` возвращается вызывающему коду;
-- HTTP 429 сохраняется в диагностике.
+- send text в user/chat;
+- signed chat ID;
+- HTTP 401 / 429;
+- transport-level failure;
+- image upload pipeline;
+- file upload pipeline;
+- `type=image`, не `photo`;
+- multipart field `data`;
+- returned upload URL используется без переписывания;
+- Bot token не уходит на upload-host;
+- failure на каждом этапе upload pipeline;
+- `attachment.not.ready` -> повторяется только финальный `POST /messages`;
+- retry использует тот же attachment token/body;
+- multipart выполняется ровно один раз;
+- backoff `500 -> 1000 -> 2000 ms`;
+- максимум 4 final-send attempts;
+- обычный 429 не ошибочно трактуется как `attachment.not.ready`.
 
-## Уровень C — Telegram/LanMon behavioral contract, автоматизировано
+## C. Telegram/LanMon behavioral contract — автоматизировано
 
-`tests/test_contract.py` проверяет исходный VCL-код, который Ubuntu не может скомпилировать.
+`Max/tests/test_contract.py` анализирует VCL/C++Builder source, который Ubuntu не может скомпилировать.
 
-Это не обычный grep наличия классов. Проверяется порядок критических операций:
+Защищается именно поведение:
 
-- пустой chat id отбрасывается до обработки;
-- `UserMessageCount` увеличивается до script callback;
-- существующий `OnTgMessage` вызывается до built-in команд;
-- `FlagSendMaps` по историческому контракту блокирует все built-in команды;
-- поиск пользователя выполняется до `RequestAlias` authorization;
-- команды приводятся через `UpperCase().Trim()`;
-- сохранены `SCREEN/ЭКРАН`, `MAP/КАРТА`, `STOP/СТОП`, `LOG`, `LOGXLS`, `ALARM/ТРЕВОГИ`, `HELP/?`;
-- SCREEN: конкретный monitor → fallback на desktop;
-- MAP: 1-based номер → 0-based индекс → BMP → PNG → отправка;
-- STOP: закрытие аварийной формы → подтверждение;
-- LOG/LOGXLS: export → отправка документа;
-- ALARM: PDF должен существовать перед отправкой;
-- HELP содержит `??`;
-- alias `*`;
-- пустая alias mask;
-- `!` как wildcard одного символа;
-- numeric alias fallback;
-- alarm fan-out через `AlarmAlias`;
-- `PeerType` сохраняется для user/chat;
-- неизвестный direct id по умолчанию трактуется как `user_id`;
-- `OutCount` сохраняет legacy-семантику Telegram;
-- task queue остаётся thread-safe FIFO;
-- все send tasks несут `PeerType`;
-- INI keys и fallback `BotToken`;
-- `MAX_BOT` не перехватывает callbacks у `MainForm`;
-- thread создаётся suspended и затем resume;
-- Indy использует TLS 1.2, `RootCertFile`, peer verification и `certs\\max-ca.pem`;
-- multipart upload step не получает Bot API headers.
+- empty chat id отбрасывается первым;
+- `UserMessageCount++` до script callback;
+- `OnTgMessage` вызывается до built-in logic;
+- исторический `FlagSendMaps` блокирует все built-in команды;
+- user lookup -> `RequestAlias` -> command;
+- `SCREEN/ЭКРАН`, `MAP/КАРТА`, `STOP/СТОП`, `LOG`, `LOGXLS`, `ALARM/ТРЕВОГИ`, `HELP/?`;
+- SCREEN monitor -> desktop fallback;
+- MAP 1-based -> 0-based -> BMP -> PNG -> send;
+- STOP action -> confirmation;
+- LOG/LOGXLS export -> send;
+- ALARM PDF -> send;
+- alias `*`, empty mask, `!` wildcard;
+- direct numeric alias fallback;
+- alarm fan-out по `AlarmAlias`;
+- `PeerType=user|chat` persistence;
+- legacy `OutCount` semantics;
+- thread-safe FIFO task queue;
+- send tasks сохраняют `PeerType`;
+- INI compatibility и fallback `BotToken`;
+- thread lifecycle остаётся Telegram-like;
+- MainForm, а не `MAX_BOT`, владеет callbacks;
+- TLS 1.2 + `RootCertFile` + `sslvrfPeer`;
+- отсутствие CA -> fail-closed до network call;
+- multipart upload не получает Bot API headers;
+- attachment retry loop не может повторно вызвать multipart upload.
 
-## Уровень D — настоящий TCP/HTTP E2E, автоматизировано
+## D. CA integrity — автоматизировано
 
-`e2e/run_e2e.sh` поднимает Python MAX server и запускает C++98-клиент через обычные POSIX sockets.
+`Max/tests/test_cert.sh` проверяет vendored `Max/certs/max-ca.pem`.
 
 Проверяется:
 
-- настоящий HTTP `GET /me`;
-- два последовательных Long Poll запроса;
-- marker continuity между разными TCP-запросами;
-- русский UTF-8 + кавычки + newline;
-- настоящий `POST /messages`;
-- image `POST /uploads`;
-- настоящий multipart upload реального файла с диска;
-- image token → attachment message;
-- file `POST /uploads`;
-- file token → attachment message;
+- bundle существует;
+- ровно 2 PEM certificates;
+- Russian Trusted Sub CA fingerprint:
+  `BBBDE2103E790B999EC62BD03CF625A5A2E7C316E10AFE6A490EEDEAD8B3FD9B`;
+- Russian Trusted Root CA fingerprint:
+  `D26D2D0231B7C39F92CC738512BA54103519E4405D68B5BD703E9788CA8ECF31`;
+- ожидаемые subjects;
+- сертификаты не истекли и живут больше 24 часов;
+- Sub CA криптографически проверяется Root CA;
+- combined bundle пригоден как OpenSSL `CAfile`.
+
+## E. Local TCP/HTTP E2E — автоматизировано
+
+`Max/e2e/run_e2e.sh` поднимает Python HTTP server и настоящий C++98 client через POSIX sockets.
+
+Проверяется:
+
+- `GET /me` по настоящему TCP;
+- два Long Poll запроса;
+- marker continuity между разными HTTP calls;
+- UTF-8, кавычки и newline;
+- `POST /messages`;
+- `POST /uploads?type=image`;
+- реальный multipart image file с диска;
+- image token -> attachment message;
+- `POST /uploads?type=file`;
+- реальный multipart PDF/file;
+- file token -> attachment message;
 - signed `chat_id` и `user_id`;
 - отсутствие `Authorization` на upload-host;
-- HTTP 401 по настоящему сокету.
+- настоящий `attachment.not.ready` response по TCP;
+- retry final message с тем же token;
+- mock server падает, если клиент пытается повторно upload-ить файл;
+- HTTP 401 по настоящему socket transport.
 
-## Что пока НЕ доказано автоматическими тестами
+## F. Live TLS к MAX — GitHub Actions
 
-Эти пункты нельзя честно закрыть Linux mock-тестом.
+CI выполняет без Bot Token:
 
-### 1. Сборка реальным C++Builder
+```bash
+openssl s_client \
+  -connect platform-api2.max.ru:443 \
+  -servername platform-api2.max.ru \
+  -verify_hostname platform-api2.max.ru \
+  -verify_return_error \
+  -tls1_2 \
+  -CAfile Max/certs/max-ca.pem
+```
 
-Нужен acceptance build тем же C++Builder/Indy/OpenSSL, которым собирается LanMon. Он должен поймать несовместимость заголовков, версий Indy, DFM и Borland ABI.
+Это доказывает одновременно:
 
-### 2. TLS на целевой Windows
+- runner реально устанавливает TLS 1.2 соединение с текущим MAX host;
+- hostname соответствует сертификату;
+- цепочка сервера доверяется именно vendored `max-ca.pem`;
+- bundle не только синтаксически валиден offline.
 
-Нужно проверить на машине заказчика:
+## Что ещё нельзя честно закрыть Linux CI
 
-- реальные OpenSSL DLL;
-- `certs\\max-ca.pem`;
-- цепочку сертификатов `platform-api2.max.ru`;
-- ошибку при удалённом/неверном CA;
-- успешный `GetMe` только при включённой peer verification.
+### 1. Реальный C++Builder build
 
-### 3. Живой MAX bot
+Нужна сборка тем же C++Builder/Indy/OpenSSL, которым собирается LanMon. Она должна поймать:
 
-С тестовым токеном выполнить:
+- несовместимость Borland headers/ABI;
+- конкретные Indy enum/property differences;
+- DFM/form errors;
+- несовместимые OpenSSL DLL.
+
+### 2. TLS внутри старого Indy на целевой Windows
+
+Live OpenSSL CI проверяет сертификат и сервер, но не доказывает поведение конкретного `TIdSSLIOHandlerSocketOpenSSL` заказчика.
+
+Acceptance:
+
+```text
+correct max-ca.pem -> GetMe проходит
+missing max-ca.pem -> fail-closed до сети
+corrupted max-ca.pem -> TLS не проходит
+wrong hostname/MITM -> TLS не проходит
+```
+
+### 3. Живой MAX Bot Token
+
+Нужен controlled smoke test:
 
 - `GetMe`;
-- личное сообщение;
-- групповой чат;
-- отрицательный/реальный chat id;
+- личный user;
+- group chat;
 - русские команды;
 - image upload;
 - PDF/file upload;
-- ошибка revoked/invalid token.
+- revoked/invalid token.
 
 ### 4. Реальные LanMon actions
 
-Linux contract-test защищает порядок вызовов, но не может выполнить VCL-функции:
+Только настоящий `lanmon4.exe` может выполнить:
 
 - `GetMonitorScreenshot` / `DesktopScreenshot`;
 - `CreateMapScreenshot` / `Bmp2Png`;
@@ -169,73 +200,62 @@ Linux contract-test защищает порядок вызовов, но не м
 - `CreateAlarmsPdf`;
 - `CloseAvariaForm`.
 
-Перед передачей заказчику нужен smoke-test этих команд внутри настоящего `lanmon4.exe`.
+### 5. Rate limiting / burst
 
-### 5. `attachment.not.ready`
+Формального 30 rps limiter сейчас нет. До production нужны:
 
-MAX прямо допускает эту ошибку сразу после загрузки большого файла и рекомендует повтор с увеличением интервала. Сейчас клиент корректно вернёт ошибку вызывающему коду, но автоматический retry/backoff ещё не реализован.
+- burst из 100 alarm messages;
+- сохранение порядка;
+- backpressure;
+- controlled retry при 429;
+- отсутствие retry storm.
 
-Нужный тест после реализации:
+### 6. Fault injection transport
 
-```text
-upload success
-→ POST /messages = attachment.not.ready
-→ wait
-→ retry same attachment token
-→ success
-```
-
-Важно: повтор не должен заново загружать файл и получать новый token.
-
-### 6. Rate limit / backpressure
-
-MAX рекомендует не превышать 30 запросов/с. Task queue последовательная, но формального rate limiter сейчас нет.
-
-Нужные тесты:
-
-- burst из 100 аварий;
-- не более 30 API requests в скользящем окне;
-- HTTP 429 → controlled retry;
-- сохранение порядка сообщений после retry.
-
-### 7. Потеря соединения
-
-Нужны fault-injection E2E сценарии:
+Ещё полезны:
 
 - disconnect до HTTP headers;
-- disconnect в середине JSON body;
-- timeout Long Poll;
+- disconnect посреди response body;
+- Long Poll timeout;
 - DNS failure;
-- upload disconnect в середине multipart;
-- 500/503 с последующим восстановлением.
+- disconnect посреди multipart;
+- 500/503 с восстановлением.
 
-### 8. Restart semantics marker
+### 7. Restart semantics Long Poll marker
 
-Сейчас marker живёт в памяти `MAX_API_CLIENT`. После рестарта Long Poll начинается без marker, а MAX без marker возвращает только последнее обновление.
+Marker сейчас живёт в памяти клиента. Для dev/test нужно отдельно принять поведение после рестарта. Для production это должно быть снято переходом входящих событий на Webhook/relay.
 
-Для development/test это нужно проверить отдельно. Для production проблема должна исчезнуть вместе с переходом входящих событий на Webhook/relay.
+### 8. Production Webhook/relay
 
-### 9. Production Webhook
+Когда появится production inbound transport, его тесты должны покрыть:
 
-Текущий зеркальный вариант использует Long Polling для сходства с Telegram. Production delivery через Webhook/relay пока не реализована, поэтому её тестовый набор должен появиться вместе с transport:
-
-- signature/security policy выбранного relay;
 - duplicate delivery/idempotency;
 - out-of-order events;
-- temporary LanMon offline;
-- retry from relay;
+- LanMon offline;
+- relay retry;
 - replay protection;
-- delivery after relay restart.
+- relay restart;
+- delivery acknowledgement.
 
-## Минимальный acceptance перед отдачей заказчику
+## Команды CI
 
-Обязательный набор:
+Локальные автоматические проверки:
+
+```bash
+bash Max/tests/run.sh
+bash Max/e2e/run_e2e.sh
+```
+
+В GitHub Actions к ним добавлен live TLS step.
+
+## Минимальный acceptance перед заказчиком
 
 ```text
-[ ] Max/tests/run.sh — green
-[ ] Max/e2e/run_e2e.sh — green
+[ ] GitHub CI — green
 [ ] C++Builder build — green
-[ ] GetMe через настоящий MAX — green
+[ ] certs\max-ca.pem попал в installer/package
+[ ] GetMe через реальный MAX — green
+[ ] missing/wrong CA -> connection fails
 [ ] личный чат — green
 [ ] групповой чат — green
 [ ] SCREEN — green
@@ -244,8 +264,8 @@ MAX рекомендует не превышать 30 запросов/с. Task 
 [ ] LOG / LOGXLS — green
 [ ] ALARM — green
 [ ] HELP — green
-[ ] авария по AlarmAlias — green
+[ ] AlarmAlias fan-out — green
 [ ] image upload — green
 [ ] file/PDF upload — green
-[ ] TLS ломается без корректного CA и работает с ним
+[ ] attachment.not.ready retry — green
 ```
