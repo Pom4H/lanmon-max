@@ -35,6 +35,8 @@ class MAX_API_CLIENT
     bool HasMarker;
     max_int64 Marker;
     std::string BaseUrl;
+    int LastStatusCode;
+    std::string LastResponseBody;
 public:
     MAX_API_CLIENT(IMaxHttpTransport * transport, const std::string & token,
                    const std::string & baseUrl="https://platform-api2.max.ru");
@@ -48,10 +50,12 @@ public:
     max_int64 CurrentMarker() const { return Marker; }
     void ResetMarker() { HasMarker=false; Marker=0; }
     const std::string & GetBaseUrl() const { return BaseUrl; }
+    int GetLastStatusCode() const { return LastStatusCode; }
+    const std::string & GetLastResponseBody() const { return LastResponseBody; }
 private:
     std::string WithBaseUrl(const std::string & url) const;
     std::map<std::string,std::string> Headers(bool json) const;
-    bool CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & error) const;
+    bool CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & error);
     bool SendUploadedAttachment(const MAX_PEER & peer, const std::string & filename, const std::string & utf8Caption,
                                 const std::string & uploadType, const std::string & attachmentType, std::string & error);
 };

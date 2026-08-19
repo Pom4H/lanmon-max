@@ -15,7 +15,7 @@ MAX_HTTP_RESPONSE IMaxHttpTransport::PostMultipartFile(const std::string &,
 }
 
 MAX_API_CLIENT::MAX_API_CLIENT(IMaxHttpTransport * transport, const std::string & token, const std::string & baseUrl)
-    : Token(token), Transport(transport), HasMarker(false), Marker(0), BaseUrl(baseUrl)
+    : Token(token), Transport(transport), HasMarker(false), Marker(0), BaseUrl(baseUrl), LastStatusCode(0)
 {
     while(BaseUrl.size()>1 && BaseUrl[BaseUrl.size()-1]=='/') BaseUrl.erase(BaseUrl.size()-1);
 }
@@ -36,8 +36,10 @@ std::map<std::string,std::string> MAX_API_CLIENT::Headers(bool json) const
     return h;
 }
 
-bool MAX_API_CLIENT::CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & error) const
+bool MAX_API_CLIENT::CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & error)
 {
+    LastStatusCode=r.StatusCode;
+    LastResponseBody=r.Body;
     if(!r.Error.empty()) { error=r.Error; return false; }
     if(r.StatusCode<200 || r.StatusCode>=300) {
         std::ostringstream os; os << "MAX HTTP " << r.StatusCode;
@@ -49,7 +51,7 @@ bool MAX_API_CLIENT::CheckResponse(const MAX_HTTP_RESPONSE & r, std::string & er
 
 bool MAX_API_CLIENT::GetMe(MAX_BOT_INFO & info, std::string & error)
 {
-    if(!Transport) { error="MAX transport is null"; return false; }
+    if(!Transport) { error="MAX transport is null"; LastStatusCode=0; LastResponseBody.clear(); return false; }
     MAX_HTTP_RESPONSE r=Transport->Get(WithBaseUrl("https://platform-api2.max.ru/me"),Headers(false));
     if(!CheckResponse(r,error)) return false;
     return MaxParseBotInfo(r.Body,info,error);
@@ -57,7 +59,7 @@ bool MAX_API_CLIENT::GetMe(MAX_BOT_INFO & info, std::string & error)
 
 bool MAX_API_CLIENT::Poll(MAX_UPDATES & updates, std::string & error, int timeoutSeconds, int limit)
 {
-    if(!Transport) { error="MAX transport is null"; return false; }
+    if(!Transport) { error="MAX transport is null"; LastStatusCode=0; LastResponseBody.clear(); return false; }
     std::string url=MaxBuildUpdatesUrl(HasMarker,Marker,timeoutSeconds,limit);
     MAX_HTTP_RESPONSE r=Transport->Get(WithBaseUrl(url),Headers(false));
     if(!CheckResponse(r,error)) return false;
@@ -68,7 +70,7 @@ bool MAX_API_CLIENT::Poll(MAX_UPDATES & updates, std::string & error, int timeou
 
 bool MAX_API_CLIENT::SendMessage(const MAX_PEER & peer, const std::string & utf8Text, std::string & error)
 {
-    if(!Transport) { error="MAX transport is null"; return false; }
+    if(!Transport) { error="MAX transport is null"; LastStatusCode=0; LastResponseBody.clear(); return false; }
     MAX_HTTP_RESPONSE r=Transport->Post(WithBaseUrl(MaxBuildSendMessageUrl(peer)),Headers(true),MaxBuildSendMessageBody(utf8Text));
     return CheckResponse(r,error);
 }
@@ -77,7 +79,7 @@ bool MAX_API_CLIENT::SendUploadedAttachment(const MAX_PEER & peer, const std::st
                                const std::string & utf8Caption, const std::string & uploadType,
                                const std::string & attachmentType, std::string & error)
 {
-    if(!Transport) { error="MAX transport is null"; return false; }
+    if(!Transport) { error="MAX transport is null"; LastStatusCode=0; LastResponseBody.clear(); return false; }
 
     MAX_HTTP_RESPONSE prepare=Transport->Post(
         WithBaseUrl(std::string("https://platform-api2.max.ru/uploads?type=")+uploadType),Headers(false),"");
