@@ -9,6 +9,13 @@ static std::string BuildAttachmentMessageBody(const std::string & text, const st
            "\",\"payload\":{\"token\":\"" + MaxJsonEscape(token) + "\"}}]}";
 }
 
+//MAX может временно вернуть attachment.not.ready сразу после upload
+static bool IsAttachmentNotReady(const MAX_HTTP_RESPONSE & response)
+{
+    return response.Error.empty() &&
+           response.Body.find("attachment.not.ready")!=std::string::npos;
+}
+
 //Транспорт по умолчанию не умеет multipart; production Indy переопределяет этот метод
 MAX_HTTP_RESPONSE IMaxHttpTransport::PostMultipartFile(const std::string &,
     const std::map<std::string,std::string> &, const std::string &, const std::string &)
@@ -16,6 +23,11 @@ MAX_HTTP_RESPONSE IMaxHttpTransport::PostMultipartFile(const std::string &,
     MAX_HTTP_RESPONSE r;
     r.Error="multipart upload is not supported by this transport";
     return r;
+}
+
+//По умолчанию тестовый transport не обязан реально ждать
+void IMaxHttpTransport::SleepMilliseconds(unsigned int)
+{
 }
 
 //Создание клиента MAX API
@@ -164,11 +176,24 @@ bool MAX_API_CLIENT::SendUploadedAttachment(const MAX_PEER & peer, const std::st
     std::string token;
     if(!MaxParseUploadToken(uploaded.Body,token,error))return false;
 
-    //5. Отправить сообщение с attachment.payload.token
-    MAX_HTTP_RESPONSE sent=Transport->Post(
-        WithBaseUrl(MaxBuildSendMessageUrl(peer)),Headers(true),
-        BuildAttachmentMessageBody(utf8Caption,attachmentType,token));
-    return CheckResponse(sent,error);
+    //5. Отправить сообщение с attachment.payload.token.
+    //MAX предупреждает, что большой файл сразу после upload может быть ещё не обработан.
+    //Повторяем только финальный POST /messages с тем же token: файл заново не загружается.
+    const unsigned int retryDelayMs[]={500,1000,2000};
+    const int maxAttempts=4;
+    std::string body=BuildAttachmentMessageBody(utf8Caption,attachmentType,token);
+    for(int attempt=0;attempt<maxAttempts;attempt++)
+    {
+        MAX_HTTP_RESPONSE sent=Transport->Post(
+            WithBaseUrl(MaxBuildSendMessageUrl(peer)),Headers(true),body);
+        if(CheckResponse(sent,error))return true;
+
+        if(!IsAttachmentNotReady(sent) || attempt==maxAttempts-1)return false;
+
+        //Интервал растёт между повторами: 0.5s -> 1s -> 2s
+        Transport->SleepMilliseconds(retryDelayMs[attempt]);
+    }
+    return false;
 }
 
 //Посылка файла картинки
