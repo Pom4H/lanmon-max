@@ -1,4 +1,4 @@
-#include "../maxcore.h"
+#include "../api/maxcore.h"
 #include <iostream>
 #include <cstdlib>
 

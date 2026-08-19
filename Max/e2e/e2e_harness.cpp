@@ -1,4 +1,4 @@
-#include "../maxclient.h"
+#include "../api/maxclient.h"
 #include "posix_http_transport.h"
 #include <iostream>
 #include <cstdlib>

@@ -2,13 +2,11 @@
 #ifndef maxbotH
 #define maxbotH
 //---------------------------------------------------------------------------
-#include <vcl.h>
-#include "maxclient.h"
-#include "maxindy.h"
-#include "maxsettings.h"
+#include "api/maxclient.h"
+#include "api/maxindy.h"
+//---------------------------------------------------------------------------
 #include "maxtask.h"
 #include "maxmsg.h"
-#include "maxuser.h"
 //---------------------------------------------------------------------------
 typedef void __fastcall (__closure * TMaxDebugMessage)(AnsiString msg);
 typedef void __fastcall (__closure * TMaxOnReadMessages)(MaxMessage_LIST & msglist);
@@ -17,11 +15,11 @@ typedef void __fastcall (__closure * TMaxOnGetMe)(MaxBotInfo & botinfo);
 //Состояние потока работы с MAX
 enum MB_THREAD_STATE
 {
-    tsNONE=0,
-    tsERROR,
-    tsDONE,
-    tsTASK,
-    tsDISABLED
+    tsNONE=0,           //Ничего не делаем
+    tsERROR,            //Ошибка
+    tsDONE,             //Поток завершён
+    tsTASK,             //Выполнение задания
+    tsDISABLED          //Запрещён
 };
 //---------------------------------------------------------------------------
 //Поток для работы с MAX
@@ -77,6 +75,7 @@ protected:
     AnsiString GetErrorText(void);
     //Исключительная ошибка
     AnsiString ExeptionText;
+    void UpdateResponse(void);
 public:
     //Конструктор
     __fastcall TMaxBotThread(bool CreateSuspended);
@@ -90,17 +89,6 @@ public:
     //Результаты последнего действия
     AnsiString ResponseText;
     int ResponseCode;
-    //Последний реальный ответ MAX API
-    AnsiString GetResponseText(void)
-    {
-        if(Api)return MaxAnsiFromUtf8(Api->GetLastResponseBody());
-        return ResponseText;
-    }
-    int GetResponseCode(void)
-    {
-        if(Api)return Api->GetLastStatusCode();
-        return ResponseCode;
-    }
     //Идентификатор разработчика бота
     __property AnsiString BotApi={read=FBotApi,write=SetBotApi};
     //Период чтения сообщений с MAX сервера, с
@@ -134,12 +122,11 @@ class MAX_BOT
     UINT FPeriodReadMessages;
     void SetPeriodReadMessages(UINT period);
     //Прочитать JSON
-    AnsiString GetJson(void){if(Thread)return Thread->GetResponseText();return "";}
+    AnsiString GetJson(void){if(Thread)return Thread->ResponseText;return "";}
     //Временно не выполнять периодическое чтение сообщений с сервера
     bool FPeriodicReadMessagesPaused;
     void SetPeriodicReadMessagesPaused(bool v);
-    void __fastcall ThreadReadMessages(MaxMessage_LIST &msglist);
-    void __fastcall ThreadGetMe(MaxBotInfo &botinfo);
+    MAX_PEER_TYPE GetPeerType(AnsiString id);
 public:
     MAX_BOT();
     ~MAX_BOT();
@@ -176,15 +163,15 @@ public:
     //*****************************************
     //Добавление заданий потоку
     //Передача сообщения
-    void SendMessage(__int64 id,AnsiString msg,MAX_PEER_TYPE peerType=maxPeerUser);
+    void SendMessage(AnsiString id,AnsiString msg);
     //Чтение сообщений
     void ReadMessages(void);
     //Запрос информации о себе
     void GetMe(void);
     //Передача картинки
-    void SendPhoto(__int64 id,AnsiString fn,AnsiString caption,MAX_PEER_TYPE peerType=maxPeerUser);
+    void SendPhoto(AnsiString id,AnsiString fn,AnsiString caption);
     //Передача документа
-    void SendDoc(__int64 id,AnsiString fn,AnsiString caption,MAX_PEER_TYPE peerType=maxPeerUser);
+    void SendDoc(AnsiString id,AnsiString fn,AnsiString caption);
     //*****************************************
     //Установка обработчиков событий
     //Задание обработчиков лога

@@ -6,7 +6,7 @@ BIN="./max_e2e_harness"
 LOG="./mock_max_server.log"
 
 g++ -std=gnu++98 -Wall -Wextra -Werror \
-  ../maxcore.cpp ../maxclient.cpp posix_http_transport.cpp e2e_harness.cpp \
+  ../api/maxcore.cpp ../api/maxclient.cpp posix_http_transport.cpp e2e_harness.cpp \
   -o "$BIN"
 
 python3 mock_max_server.py "$PORT" >"$LOG" 2>&1 &

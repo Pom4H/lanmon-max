@@ -11,10 +11,22 @@
 #pragma package(smart_init)
 //---------------------------------------------------------------------------
 MAX_BOT MaxBot;
+char MaxSecSETUP[]="SETUP";
 //---------------------------------------------------------------------------
-static std::string Utf8(AnsiString s){return MaxUtf8FromCp1251(s.c_str());}
-static AnsiString U8(const char *s){return MaxAnsiFromUtf8(std::string(s));}
-static MAX_PEER MakePeer(__int64 id,MAX_PEER_TYPE type){return MAX_PEER(type,id);}
+static MAX_PEER MakeMaxPeer(AnsiString id,MAX_PEER_TYPE type)
+{
+    return MAX_PEER(type,(__int64)_atoi64(id.c_str()));
+}
+//---------------------------------------------------------------------------
+static std::string MaxUtf8(AnsiString s)
+{
+    return MaxUtf8FromCp1251(s.c_str());
+}
+//---------------------------------------------------------------------------
+static AnsiString U8(const char * s)
+{
+    return MaxAnsiFromUtf8(std::string(s));
+}
 //---------------------------------------------------------------------------
 //Поток для работы с MAX
 //---------------------------------------------------------------------------
@@ -33,9 +45,12 @@ __fastcall TMaxBotThread::TMaxBotThread(bool CreateSuspended)
     FlagNewBotApi=false;
     //Время последнего периодического чтения сообщений
     LastReadTick=0;
-    BreakSignal=false;
+    OnDebugMessage=NULL;
+    OnErrorDebugMessage=NULL;
+    OnTaskReadMessages=NULL;
+    OnPeriodicReadMessages=NULL;
+    OnGetMe=NULL;
     ResponseCode=0;
-    OnDebugMessage=NULL;OnErrorDebugMessage=NULL;OnTaskReadMessages=NULL;OnPeriodicReadMessages=NULL;OnGetMe=NULL;
 }
 //---------------------------------------------------------------------------
 //Деструктор
@@ -49,34 +64,34 @@ void __fastcall TMaxBotThread::DebugMessage()
 {
     if(OnDebugMessage)OnDebugMessage(S);
 }
-#define DBG_MSG(x) if(OnDebugMessage){S=x;Synchronize(DebugMessage);}
+#define DBG_MSG(x)    if(OnDebugMessage){S=x;Synchronize(DebugMessage);}
 //---------------------------------------------------------------------------
 void __fastcall TMaxBotThread::ErrorDebugMessage()
 {
     if(OnErrorDebugMessage)OnErrorDebugMessage(S);
 }
-#define ERROR_DBG_MSG(x) if(OnErrorDebugMessage){S=x;Synchronize(ErrorDebugMessage);}
+#define ERROR_DBG_MSG(x)    if(OnErrorDebugMessage){S=x;Synchronize(ErrorDebugMessage);}
 //---------------------------------------------------------------------------
 //Прочитаны сообщения по заданию
 void __fastcall TMaxBotThread::OnTaskReadMessagesFunc()
 {
     if(OnTaskReadMessages)OnTaskReadMessages(MsgList);
 }
-#define _ON_TASK_READMSG() {if(OnTaskReadMessages)Synchronize(OnTaskReadMessagesFunc);}
+#define _ON_TASK_READMSG()    {if(OnTaskReadMessages)Synchronize(OnTaskReadMessagesFunc);}
 //---------------------------------------------------------------------------
 //Прочитаны сообщения периодически
 void __fastcall TMaxBotThread::OnPeriodicReadMessagesFunc()
 {
     if(OnPeriodicReadMessages)OnPeriodicReadMessages(MsgList);
 }
-#define _ON_PERIODIC_READMSG() {if(OnPeriodicReadMessages)Synchronize(OnPeriodicReadMessagesFunc);}
+#define _ON_PERIODIC_READMSG()    {if(OnPeriodicReadMessages)Synchronize(OnPeriodicReadMessagesFunc);}
 //---------------------------------------------------------------------------
 //Информация о себе
 void __fastcall TMaxBotThread::OnBotInfo()
 {
     if(OnGetMe)OnGetMe(BotInfo);
 }
-#define _ON_GETME() {if(OnGetMe)Synchronize(OnBotInfo);}
+#define _ON_GETME()    {if(OnGetMe)Synchronize(OnBotInfo);}
 //---------------------------------------------------------------------------
 //Идентификатор разработчика MAX бота: FBotApi
 //Установка значения FBotApi
@@ -84,6 +99,12 @@ void TMaxBotThread::SetBotApi(AnsiString api)
 {
     NewBotApi=api;
     FlagNewBotApi=true;
+}
+//---------------------------------------------------------------------------
+void TMaxBotThread::UpdateResponse(void)
+{
+    ResponseCode=Api?Api->GetLastStatusCode():0;
+    ResponseText=Api?AnsiString(Api->GetLastResponseBody().c_str()):AnsiString("");
 }
 //---------------------------------------------------------------------------
 //Функция потока
@@ -104,14 +125,14 @@ void __fastcall TMaxBotThread::Execute()
         if(!MaxBot.Active)
         {
             //Работа запрещена
-            State=tsDISABLED; //Запрещён
+            State=tsDISABLED;    //Запрещён
             ::Sleep(10);
             continue;
         }
         if(!FBotApi.Length())
         {
             //Не задан Id разработчика
-            State=tsERROR; //Ошибка
+            State=tsERROR;    //Ошибка
             ::Sleep(10);
             continue;
         }
@@ -119,211 +140,477 @@ void __fastcall TMaxBotThread::Execute()
         //Выполнение заданий
         CheckTask();
         //Если есть запрет периодического чтения
-        if(PeriodicReadMessagesPaused)continue;
-        //Периодическое чтение сообщений
-        DoReadMessagesPeriodic();
+        if(PeriodicReadMessagesPaused)
+        {
+            //Временно не выполнять периодическое чтение сообщений с сервера
+            continue;
+        }
+        //Период чтения сообщений с MAX сервера, с
+        if(!PeriodReadMessages)
+        {
+            //Не нужны периодические чтения
+            continue;
+        }
+        //Время последнего периодического чтения сообщений
+        if((GetTickCount()-LastReadTick)>=PeriodReadMessages*1000u)
+        {
+            //Пора выполнять периодическое чтение сообщений
+            if(OnPeriodicReadMessages)
+            {
+                //Есть обработчик периодического чтения
+                //Выполнить чтение сообщений с сервера
+                DoReadMessagesPeriodic();
+            }
+            LastReadTick=GetTickCount();
+        }
     }
     State=tsDONE;
 }
 //---------------------------------------------------------------------------
 //Выполнение заданий
-//Проверка и выполнение заданий
 void TMaxBotThread::CheckTask(void)
 {
-    //Есть задание
-    if(!TaskList.Get(Task))return;
-    //Получено задание
-    State=tsTASK;
-    //Выполнение задания
-    switch(Task.Type)
+    BreakSignal=false;
+    //Проверка и выполнение заданий
+    //Список заданий записи
+    while(TaskList.Get(Task))
     {
-        case taskGETME:      DoGetMe();break;
-        case taskREADMSG:    DoReadMessagesByTask();break;
-        case taskSENDMSG:    DoSendMessage();break;
-        case taskSENDPHOTO:  DoSendPhoto();break;
-        case taskSENDDOC:    DoSendDoc();break;
+        //Есть задание
+        if(Terminated)break;
+        //Получено задание
+        State=tsTASK;    //Выполнение задания
+        switch(Task.Type)
+        {
+            case taskREADMSG:
+            {
+                //Чтение сообщений по заданию
+                DoReadMessagesByTask();
+                break;
+            }
+            case taskSENDMSG:
+            {
+                //Посылка сообщения
+                DoSendMessage();
+                break;
+            }
+            case taskGETME:
+            {
+                //Информация о себе
+                DoGetMe();
+                break;
+            }
+            case taskSENDPHOTO:
+            {
+                //Посылка файла
+                DoSendPhoto();
+                break;
+            }
+            case taskSENDDOC:
+            {
+                //Посылка файла документа
+                DoSendDoc();
+                break;
+            }
+        }
     }
+    State=tsNONE;
 }
 //---------------------------------------------------------------------------
-//Чтение сообщений
 //Чтение сообщений с сервера
 bool TMaxBotThread::DoReadMessages(bool bytask)
 {
+    MaxBot.ReadMessagesCount++;
+    //MsgList содержит ранее прочитанные сообщения
+    //Курсор MAX хранится внутри MAX_API_CLIENT как marker
+    //Очистить список принятых сообщений
+    MsgList.Clear();
+    ExeptionText="";
     std::string error;
     MAX_UPDATES updates;
-    bool ok=Api->Poll(updates,error,30,100);
-    if(!ok){ExeptionText=error.c_str();ERROR_DBG_MSG(ExeptionText);return false;}
-    //Очистить список принятых сообщений и заполнить прочитанными
+    bool result=Api->Poll(updates,error,30,100);
+    UpdateResponse();
+    if(!result)
+    {
+        //Не удалось
+        ExeptionText=error.c_str();
+        ERROR_DBG_MSG(GetErrorText());
+        return false;
+    }
+    //Успешно
+    //Декодируем JSON
+    //Получение сообщений из JSON ответа сервера
     MsgList.CopyFrom(updates);
-    //Успешно прочитаны сообщения
-    ResponseCode=200;
-    if(bytask)_ON_TASK_READMSG() else _ON_PERIODIC_READMSG();
+    if(bytask)
+    {
+        int cnt=MsgList.Count;
+        if(cnt==1)
+        {
+            DBG_MSG("Успешно прочитано одно сообщение ...");
+        }
+        else if(cnt>0 && cnt<5)
+        {
+            DBG_MSG("Успешно прочитаны "+IntToStr(MsgList.Count)+" сообщения ...");
+        }
+        else
+        {
+            DBG_MSG("Успешно прочитано "+IntToStr(MsgList.Count)+" сообщений ...");
+        }
+    }
+    MaxBot.ReadMessagesCountOk++;
     return true;
 }
 //---------------------------------------------------------------------------
+//Чтение сообщений по заданию
 void TMaxBotThread::DoReadMessagesByTask(void)
 {
-    MaxBot.ReadMessagesCount++;
-    if(DoReadMessages(true))MaxBot.ReadMessagesCountOk++;
+    //Чтение сообщений с сервера
+    if(DoReadMessages(true))
+    {
+        //Успешно прочитаны сообщения
+        _ON_TASK_READMSG();
+    }
 }
 //---------------------------------------------------------------------------
 void TMaxBotThread::DoReadMessagesPeriodic(void)
 {
-    if(!PeriodReadMessages)return;
-    UINT tick=GetTickCount();
-    if((tick-LastReadTick)<PeriodReadMessages*1000)return;
-    LastReadTick=tick;
-    MaxBot.ReadMessagesCount++;
-    if(DoReadMessages(false))MaxBot.ReadMessagesCountOk++;
+    //Чтение сообщений с сервера
+    if(DoReadMessages(false))
+    {
+        if(MsgList.Count)
+        {
+            //Успешно прочитаны сообщения
+            _ON_PERIODIC_READMSG();
+        }
+    }
 }
 //---------------------------------------------------------------------------
-//Передача сообщения
 //Посылка сообщения в Task
 bool TMaxBotThread::DoSendMessage(void)
 {
+    AnsiString inf=" (Посылка: id="+Task.Id+" text="+Task.Text+")";
+    ExeptionText="";
     std::string error;
-    bool ok=Api->SendMessage(MakePeer(Task.Id,Task.PeerType),Utf8(Task.Text),error);
-    if(!ok){ExeptionText=error.c_str();ERROR_DBG_MSG(ExeptionText);}
-    return ok;
+    bool result=Api->SendMessage(MakeMaxPeer(Task.Id,Task.PeerType),MaxUtf8(Task.Text),error);
+    UpdateResponse();
+    if(!result)
+    {
+        //Не удалось
+        ExeptionText=error.c_str();
+        ERROR_DBG_MSG(GetErrorText()+inf);
+        return false;
+    }
+    DBG_MSG("Успешно послано сообщение"+inf);
+    return true;
 }
 //---------------------------------------------------------------------------
 //Информация о себе
 void TMaxBotThread::DoGetMe(void)
 {
-    std::string error;MAX_BOT_INFO info;
-    if(!Api->GetMe(info,error)){ExeptionText=error.c_str();ERROR_DBG_MSG(ExeptionText);return;}
-    BotInfo.CopyFrom(info);_ON_GETME();
+    BotInfo.Clear();
+    ExeptionText="";
+    std::string error;
+    MAX_BOT_INFO info;
+    bool result=Api->GetMe(info,error);
+    UpdateResponse();
+    if(!result)
+    {
+        //Не удалось
+        ExeptionText=error.c_str();
+        ERROR_DBG_MSG(GetErrorText());
+        _ON_GETME();
+        return;
+    }
+    BotInfo.CopyFrom(info);
+    _ON_GETME();
 }
 //---------------------------------------------------------------------------
 //Посылка файла картинки
-//Посылаем файл с помощью специального MAX upload flow
 void TMaxBotThread::DoSendPhoto(void)
 {
+    AnsiString inf=" (Посылка: id="+Task.Id+" fn="+Task.Text+")";
+    ExeptionText="";
     std::string error;
-    if(!Api->SendImage(MakePeer(Task.Id,Task.PeerType),Task.Text.c_str(),Utf8(Task.Caption),error))
-    {ExeptionText=error.c_str();ERROR_DBG_MSG(ExeptionText);}
+    bool result=Api->SendImage(MakeMaxPeer(Task.Id,Task.PeerType),Task.Text.c_str(),MaxUtf8(Task.Caption),error);
+    UpdateResponse();
+    if(!result)
+    {
+        //Не удалось
+        ExeptionText=error.c_str();
+        ERROR_DBG_MSG(GetErrorText()+inf);
+        return;
+    }
+    DBG_MSG("Успешно послана картинка"+inf);
 }
 //---------------------------------------------------------------------------
 //Посылка файла документа
-//Посылаем файл с помощью специального MAX upload flow
 void TMaxBotThread::DoSendDoc(void)
 {
+    AnsiString inf=" (Посылка: id="+Task.Id+" fn="+Task.Text+")";
+    ExeptionText="";
     std::string error;
-    if(!Api->SendFile(MakePeer(Task.Id,Task.PeerType),Task.Text.c_str(),Utf8(Task.Caption),error))
-    {ExeptionText=error.c_str();ERROR_DBG_MSG(ExeptionText);}
+    bool result=Api->SendFile(MakeMaxPeer(Task.Id,Task.PeerType),Task.Text.c_str(),MaxUtf8(Task.Caption),error);
+    UpdateResponse();
+    if(!result)
+    {
+        //Не удалось
+        ExeptionText=error.c_str();
+        ERROR_DBG_MSG(GetErrorText()+inf);
+        return;
+    }
+    DBG_MSG("Успешно послан документ"+inf);
 }
 //---------------------------------------------------------------------------
 //Получение ошибки
-AnsiString TMaxBotThread::GetErrorText(void){return ExeptionText;}
+AnsiString TMaxBotThread::GetErrorText(void)
+{
+    AnsiString s=ExeptionText;
+    if(ResponseCode)s+=" (HTTP "+IntToStr(ResponseCode)+")";
+    return s;
+}
 //---------------------------------------------------------------------------
 //Класс для работы с MAX Bot
 //---------------------------------------------------------------------------
 MAX_BOT::MAX_BOT()
 {
     UserList=new MaxUser_LIST;
-    Active=true;FlagSendAlarms=false;FlagSendAlarmsEnd=false;FlagOperatorAlarm=false;FlagSendMaps=false;
-    UseLanmonLog=false;FPeriodReadMessages=0;FPeriodicReadMessagesPaused=false;
-    ReadMessagesCount=0;ReadMessagesCountOk=0;UserMessageCount=0;
     Thread=new TMaxBotThread(true);
-    Thread->OnPeriodicReadMessages=ThreadReadMessages;
-    Thread->OnTaskReadMessages=ThreadReadMessages;
-    Thread->OnGetMe=ThreadGetMe;
     Thread->Resume();
+    FPeriodReadMessages=0;
+    FPeriodicReadMessagesPaused=false;
+    Active=false;
+    FlagSendAlarms=false;
+    FlagSendAlarmsEnd=false;
+    FlagOperatorAlarm=false;
+    FlagSendMaps=false;
+    UseLanmonLog=false;
+    ReadMessagesCount=0;
+    ReadMessagesCountOk=0;
+    UserMessageCount=0;
 }
 //---------------------------------------------------------------------------
 MAX_BOT::~MAX_BOT()
 {
-    Thread->Terminate();Thread->WaitFor();delete Thread;delete UserList;
+    if(Thread)
+    {
+        Thread->Terminate();
+        Thread->WaitFor();
+        delete Thread;
+        Thread=NULL;
+    }
+    if(UserList)delete UserList;
 }
 //---------------------------------------------------------------------------
-void MAX_BOT::SetBotApi(AnsiString api){FBotApi=api;Thread->BotApi=api;}
-void MAX_BOT::SetPeriodReadMessages(UINT period){FPeriodReadMessages=period;Thread->PeriodReadMessages=period;}
-void MAX_BOT::SetPeriodicReadMessagesPaused(bool v){FPeriodicReadMessagesPaused=v;Thread->PeriodicReadMessagesPaused=v;}
-void __fastcall MAX_BOT::ThreadReadMessages(MaxMessage_LIST &msglist){OnMessages(msglist);}
-void __fastcall MAX_BOT::ThreadGetMe(MaxBotInfo &botinfo){MyBotInfo=botinfo;}
-//---------------------------------------------------------------------------
-//Загрузка бота из файла
-void MAX_BOT::Load(AnsiString fn)
+//Идентификатор разработчика бота
+void MAX_BOT::SetBotApi(AnsiString api)
 {
-    MAX_BOT_SETTINGS s;MAX_USER_LIST users;std::string error;
-    if(!MaxLoadIni(fn.c_str(),s,users,error))return;
-    BotApi=s.BotToken.c_str();PeriodReadMessages=s.PeriodReadMessages;PeriodicReadMessagesPaused=s.PeriodicReadMessagesPaused;
-    Active=s.Active;FlagSendAlarms=s.FlagSendAlarms;FlagSendAlarmsEnd=s.FlagSendAlarmsEnd;FlagOperatorAlarm=s.FlagOperatorAlarm;
-    FlagSendMaps=s.FlagSendMaps;AlarmAlias=s.AlarmAlias.c_str();RequestAlias=s.RequestAlias.c_str();UseLanmonLog=s.UseLanmonLog;
-    UserList->Clear();
-    for(size_t i=0;i<users.Count();++i){const MAX_USER *src=users.Get(i);MaxUser *u=UserList->AddUser();u->Id=src->Id;u->PeerType=src->PeerType;u->Name=src->Name.c_str();u->Alias=src->Alias.c_str();u->Comment=src->Comment.c_str();u->IsBot=src->IsBot;u->InCount=src->InCount;u->OutCount=src->OutCount;u->Tag=src->Tag;}
+    FBotApi=api;
+    if(Thread)Thread->BotApi=api;
 }
 //---------------------------------------------------------------------------
-//Сохранение бота в файл
-void MAX_BOT::Save(AnsiString fn)
+//Период чтения сообщений с MAX сервера, мс
+void MAX_BOT::SetPeriodReadMessages(UINT period)
 {
-    MAX_BOT_SETTINGS s;MAX_USER_LIST users;std::string error;
-    s.BotToken=BotApi.c_str();s.PeriodReadMessages=PeriodReadMessages;s.PeriodicReadMessagesPaused=PeriodicReadMessagesPaused;
-    s.Active=Active;s.FlagSendAlarms=FlagSendAlarms;s.FlagSendAlarmsEnd=FlagSendAlarmsEnd;s.FlagOperatorAlarm=FlagOperatorAlarm;
-    s.FlagSendMaps=FlagSendMaps;s.AlarmAlias=AlarmAlias.c_str();s.RequestAlias=RequestAlias.c_str();s.UseLanmonLog=UseLanmonLog;
-    for(int i=0;i<UserList->Count;i++){MaxUser *src=UserList->Get(i);MAX_USER u;u.Id=src->Id;u.PeerType=src->PeerType;u.Name=src->Name.c_str();u.Alias=src->Alias.c_str();u.Comment=src->Comment.c_str();u.IsBot=src->IsBot;u.InCount=src->InCount;u.OutCount=src->OutCount;u.Tag=src->Tag;users.Add(u);}
-    MaxSaveIni(fn.c_str(),s,users,error);
+    FPeriodReadMessages=period;
+    if(Thread)Thread->PeriodReadMessages=period;
 }
 //---------------------------------------------------------------------------
-//Добавление заданий потоку
+void MAX_BOT::SetPeriodicReadMessagesPaused(bool v)
+{
+    FPeriodicReadMessagesPaused=v;
+    if(Thread)Thread->PeriodicReadMessagesPaused=v;
+}
+//---------------------------------------------------------------------------
+MAX_PEER_TYPE MAX_BOT::GetPeerType(AnsiString id)
+{
+    MaxUser * user=UserList?UserList->Find(id):NULL;
+    if(user)return user->PeerType;
+    return maxPeerUser;
+}
+//---------------------------------------------------------------------------
 //Передача сообщения
-void MAX_BOT::SendMessage(__int64 id,AnsiString msg,MAX_PEER_TYPE peerType)
+void MAX_BOT::SendMessage(AnsiString id,AnsiString msg)
 {
-    Thread->TaskList.AddSendMsg(MakePeer(id,peerType),msg);
-    MaxUser *user=UserList->Find(id);if(user)user->OutCount++;
+    if(Thread)Thread->TaskList.AddSendMsg(id,msg,GetPeerType(id));
+    //Поиск пользователя
+    MaxUser * user=UserList->Find(id);
+    if(user)user->OutCount++;
 }
 //---------------------------------------------------------------------------
 //Чтение сообщений
-void MAX_BOT::ReadMessages(void){Thread->TaskList.AddReadMsg();}
+void MAX_BOT::ReadMessages(void)
+{
+    if(Thread)Thread->TaskList.AddReadMsg();
+}
 //---------------------------------------------------------------------------
 //Запрос информации о себе
-void MAX_BOT::GetMe(void){Thread->TaskList.AddGetMe();}
+void MAX_BOT::GetMe(void)
+{
+    if(Thread)Thread->TaskList.AddGetMe();
+}
 //---------------------------------------------------------------------------
 //Передача картинки
-void MAX_BOT::SendPhoto(__int64 id,AnsiString fn,AnsiString caption,MAX_PEER_TYPE peerType)
+void MAX_BOT::SendPhoto(AnsiString id,AnsiString fn,AnsiString caption)
 {
-    Thread->TaskList.AddSendPhoto(MakePeer(id,peerType),fn,caption);
-    MaxUser *user=UserList->Find(id);if(user)user->OutCount++;
+    if(Thread)Thread->TaskList.AddSendPhoto(id,fn,caption,GetPeerType(id));
+    //Поиск пользователя
+    MaxUser * user=UserList->Find(id);
+    if(user)user->OutCount++;
 }
 //---------------------------------------------------------------------------
 //Передача документа
-void MAX_BOT::SendDoc(__int64 id,AnsiString fn,AnsiString caption,MAX_PEER_TYPE peerType)
+void MAX_BOT::SendDoc(AnsiString id,AnsiString fn,AnsiString caption)
 {
-    Thread->TaskList.AddSendDoc(MakePeer(id,peerType),fn,caption);
-    MaxUser *user=UserList->Find(id);if(user)user->OutCount++;
+    if(Thread)Thread->TaskList.AddSendDoc(id,fn,caption,GetPeerType(id));
+    //Поиск пользователя
+    MaxUser * user=UserList->Find(id);
+    if(user)user->OutCount++;
 }
 //---------------------------------------------------------------------------
-//Установка обработчиков событий
 //Задание обработчиков лога
-void MAX_BOT::SetOnDebugMessage(TMaxDebugMessage dm){Thread->OnDebugMessage=dm;}
-TMaxDebugMessage MAX_BOT::GetOnDebugMessage(void){return Thread->OnDebugMessage;}
-void MAX_BOT::SetOnErrorDebugMessage(TMaxDebugMessage dm){Thread->OnErrorDebugMessage=dm;}
-TMaxDebugMessage MAX_BOT::GetOnErrorDebugMessage(void){return Thread->OnErrorDebugMessage;}
+void MAX_BOT::SetOnDebugMessage(TMaxDebugMessage dm)
+{
+    if(Thread)Thread->OnDebugMessage=dm;
+}
+TMaxDebugMessage MAX_BOT::GetOnDebugMessage(void)
+{
+    if(Thread)return Thread->OnDebugMessage;
+    return NULL;
+}
+void MAX_BOT::SetOnErrorDebugMessage(TMaxDebugMessage dm)
+{
+    if(Thread)Thread->OnErrorDebugMessage=dm;
+}
+TMaxDebugMessage MAX_BOT::GetOnErrorDebugMessage(void)
+{
+    if(Thread)return Thread->OnErrorDebugMessage;
+    return NULL;
+}
+//---------------------------------------------------------------------------
 //Задание обработчика приема сообщений по заданию
-void MAX_BOT::SetOnTaskReadMessages(TMaxOnReadMessages rm){Thread->OnTaskReadMessages=rm;}
-TMaxOnReadMessages MAX_BOT::GetOnTaskReadMessages(void){return Thread->OnTaskReadMessages;}
-//Задание обработчика приема сообщения о чтении информации о боте
-void MAX_BOT::SetOnGetMe(TMaxOnGetMe gm){Thread->OnGetMe=gm;}
-TMaxOnGetMe MAX_BOT::GetOnGetMe(void){return Thread->OnGetMe;}
+void MAX_BOT::SetOnTaskReadMessages(TMaxOnReadMessages rm)
+{
+    if(Thread)Thread->OnTaskReadMessages=rm;
+}
+TMaxOnReadMessages MAX_BOT::GetOnTaskReadMessages(void)
+{
+    if(Thread)return Thread->OnTaskReadMessages;
+    return NULL;
+}
+//---------------------------------------------------------------------------
 //Задание обработчика о периодическом чтении сообщений
-void MAX_BOT::SetOnPeriodicReadMessages(TMaxOnReadMessages rm){Thread->OnPeriodicReadMessages=rm;}
-TMaxOnReadMessages MAX_BOT::GetOnPeriodicReadMessages(void){return Thread->OnPeriodicReadMessages;}
+void MAX_BOT::SetOnPeriodicReadMessages(TMaxOnReadMessages rm)
+{
+    if(Thread)Thread->OnPeriodicReadMessages=rm;
+}
+TMaxOnReadMessages MAX_BOT::GetOnPeriodicReadMessages(void)
+{
+    if(Thread)return Thread->OnPeriodicReadMessages;
+    return NULL;
+}
+//---------------------------------------------------------------------------
+//Задание обработчика приема сообщения о чтении информации о боте
+void MAX_BOT::SetOnGetMe(TMaxOnGetMe gm)
+{
+    if(Thread)Thread->OnGetMe=gm;
+}
+//---------------------------------------------------------------------------
+TMaxOnGetMe MAX_BOT::GetOnGetMe(void)
+{
+    if(Thread)return Thread->OnGetMe;
+    return NULL;
+}
+//---------------------------------------------------------------------------
+//Загрузка из файла
+void MAX_BOT::Load(AnsiString fn)
+{
+    if(!Thread)return;
+    if(!FileExists(fn))return;
+    TFastIniFile ini(fn);
+    //Разрешить работу MAX
+    Active=ini.ReadBool(MaxSecSETUP,"Active",true);
+    //Идентификатор разработчика MAX бота
+    BotApi=ini.ReadString(MaxSecSETUP,"BotApi",ini.ReadString(MaxSecSETUP,"BotToken",""));
+    //Уникальный идентификатор бота
+    MyBotInfo.Id=ini.ReadString(MaxSecSETUP,"MyBotId","");
+    //Имя бота
+    MyBotInfo.first_name=ini.ReadString(MaxSecSETUP,"MyBotName","");
+    //пользовательское имя бота
+    MyBotInfo.username=ini.ReadString(MaxSecSETUP,"MyBotUserName","");
+    //Период чтения сообщений с MAX сервера, с
+    PeriodReadMessages=ini.ReadInteger(MaxSecSETUP,"PeriodReadMessages",0);
+    //Отсылка алармов
+    FlagSendAlarms=ini.ReadBool(MaxSecSETUP,"SendAlarms",false);
+    //Посылать сообщения о завершении аварии
+    FlagSendAlarmsEnd=ini.ReadBool(MaxSecSETUP,"SendAlarmEnd",false);
+    //Сообщать о подтверждении срабатывания аларма
+    FlagOperatorAlarm=ini.ReadBool(MaxSecSETUP,"OperatorAlarm",false);
+    //Маска отсылки алармов
+    AlarmAlias=ini.ReadString(MaxSecSETUP,"AlarmAlias","");
+    //Маска пользователей, которым разрешено делать запросы
+    RequestAlias=ini.ReadString(MaxSecSETUP,"RequestAlias","");
+    //Отсылка картинок карт
+    FlagSendMaps=ini.ReadBool(MaxSecSETUP,"SendMaps",false);
+    //Записывать отладочные сообщения бота в lanmon.log
+    UseLanmonLog=ini.ReadBool(MaxSecSETUP,"UseLanmonLog",false);
+    //Список пользователей, используемых в программе
+    UserList->Load(&ini);
+}
+//---------------------------------------------------------------------------
+//Сохранение в файл
+void MAX_BOT::Save(AnsiString fn)
+{
+    if(!Thread)return;
+    DeleteFile(fn);
+    TFastIniFile ini(fn,true);
+    //Разрешить работу MAX
+    ini.WriteBool(MaxSecSETUP,"Active",Active);
+    //Идентификатор разработчика MAX бота
+    ini.WriteString(MaxSecSETUP,"BotApi",BotApi);
+    //Период чтения сообщений с MAX сервера, с
+    ini.WriteInteger(MaxSecSETUP,"PeriodReadMessages",PeriodReadMessages);
+    //Отсылка алармов
+    ini.WriteBool(MaxSecSETUP,"SendAlarms",FlagSendAlarms);
+    //Посылать сообщения о завершении аварии
+    ini.WriteBool(MaxSecSETUP,"SendAlarmEnd",FlagSendAlarmsEnd);
+    //Сообщать о подтверждении срабатывания аларма
+    ini.WriteBool(MaxSecSETUP,"OperatorAlarm",FlagOperatorAlarm);
+    //Маска отсылки алармов
+    ini.WriteString(MaxSecSETUP,"AlarmAlias",AlarmAlias);
+    //Маска пользователей, которым разрешено делать запросы
+    ini.WriteString(MaxSecSETUP,"RequestAlias",RequestAlias);
+    //Отсылка картинок карт
+    ini.WriteBool(MaxSecSETUP,"SendMaps",FlagSendMaps);
+    //Уникальный идентификатор бота
+    ini.WriteString(MaxSecSETUP,"MyBotId",MyBotInfo.Id);
+    //Имя бота
+    ini.WriteString(MaxSecSETUP,"MyBotName",MyBotInfo.first_name);
+    //пользовательское имя бота
+    ini.WriteString(MaxSecSETUP,"MyBotUserName",MyBotInfo.username);
+    //Записывать отладочные сообщения бота в lanmon.log
+    ini.WriteBool(MaxSecSETUP,"UseLanmonLog",UseLanmonLog);
+    //Список пользователей, используемых в программе
+    UserList->Save(&ini);
+}
 //---------------------------------------------------------------------------
 //Возникла/пропала новая авария LanMon
 void MAX_BOT::OnNewAlarmState(AnsiString mess)
 {
     //Выбираем кому нужно посылать !!!
-    MaxUser_LIST *userlist=new MaxUser_LIST;
+    MaxUser_LIST * userlist=new MaxUser_LIST;
     //Заполнить список пользователями, соответствующих маске псевдонима
     UserList->GetUsersByAlias(userlist,AlarmAlias);
-    for(int i=0;i<userlist->Count;i++){MaxUser *user=userlist->Get(i);SendMessage(user->Id,mess,user->PeerType);}
+    for(int i=0;i<userlist->Count;i++)
+    {
+        MaxUser * user=userlist->Get(i);
+        SendMessage(user->Id,mess);
+    }
     delete userlist;
 }
 //---------------------------------------------------------------------------
 //Сделать файл скриншота карты mapindex
 bool CreateMapScreenshot(int mapindex,AnsiString fn);
 extern char szBitmapDir[];
-extern char szWorkDir[]; // Рабочий каталог проекта
+extern char szWorkDir[];      // Рабочий каталог проекта
 bool Bmp2Png(AnsiString bmpfn,AnsiString pngfn);
 void CloseAvariaForm(void);
 //---------------------------------------------------------------------------
@@ -332,19 +619,20 @@ void MAX_BOT::OnMessages(MaxMessage_LIST & msglist)
 {
     for(int i=0;i<msglist.Count;i++)
     {
-        MaxMessage *msg=msglist[i];
-        __int64 id=msg->ChatId?msg->ChatId:msg->UserId;
-        if(!id)continue;
-        UserMessageCount++;
+        MaxMessage * msg=msglist[i];
+        AnsiString scriptid=msg->Chat.Id;
+        if(scriptid.IsEmpty())continue;
+        MaxBot.UserMessageCount++;
         //Вызов скриптовой функции
-        //Для минимального diff используем существующий FastScript hook Telegram.
-        OnTgMessage(msg->update_id,IntToStr(id),msg->Text);
+        //Compatibility: на первом внедрении MAX использует существующий hook.
+        OnTgMessage((int)msg->update_id,scriptid,msg->Text);
         //Проверка сообщения
         if(!FlagSendMaps)continue;
         //Поиск пользователя id
-        MaxUser *user=UserList->Find(id);if(!user && msg->UserId)user=UserList->Find(msg->UserId);
+        MaxUser * user=UserList->Find(scriptid);
+        if(!user)user=UserList->Find(msg->From.Id);
         if(!user)continue;
-        user->InCount++;
+        AnsiString id=user->Id;
         //Проверка user на маску RequestAlias
         //Проверка, что пользователь соответствует маске псевдонима
         if(user->HasValidAlias(RequestAlias))
@@ -353,37 +641,44 @@ void MAX_BOT::OnMessages(MaxMessage_LIST & msglist)
             AnsiString text=msg->Text.UpperCase().Trim();
             if(text.SubString(1,6)=="SCREEN" || text.SubString(1,5)==U8("ЭКРАН"))
             {
-                int screenindex=text.SubString(1,6)=="SCREEN"?atoi(text.c_str()+6):atoi(text.c_str()+5);
-                AnsiString fn=(AnsiString)szBitmapDir+"_screen.jpg";
+                int screenindex;
+                if(text.SubString(1,6)=="SCREEN")screenindex=atoi(text.c_str()+6);
+                else screenindex=atoi(text.c_str()+5);
+                AnsiString fn;
+                fn = (AnsiString)szBitmapDir + "_screen.jpg";
                 //Сделать скриншот монитора номер mi в JPG файл
                 //Экраны начинаются с 1-цы
                 if(GetMonitorScreenshot(screenindex-1,fn))
                 {
                     //Есть такой монитор
                     //Передача картинки
-                    SendPhoto(id,fn,U8("Экран ")+IntToStr(screenindex),user->PeerType);
+                    SendPhoto(id,fn,U8("Экран ")+IntToStr(screenindex));
                 }
                 else if(DesktopScreenshot(fn))
                 {
                     //Скриншот всех мониторов сразу в JPG файл
                     //Передача картинки
-                    SendPhoto(id,fn,U8("Экран"),user->PeerType);
+                    SendPhoto(id,fn,U8("Экран"));
                 }
             }
             else if(text.SubString(1,3)=="MAP" || text.SubString(1,5)==U8("КАРТА"))
             {
-                int mapindex=text.SubString(1,3)=="MAP"?atoi(text.c_str()+3):atoi(text.c_str()+5);
+                int mapindex;
+                if(text.SubString(1,3)=="MAP")mapindex=atoi(text.c_str()+3);
+                else mapindex=atoi(text.c_str()+5);
                 if(mapindex)
                 {
-                    AnsiString bmpfn=(AnsiString)szBitmapDir+"_map"+IntToStr(mapindex)+".bmp";
+                    AnsiString bmpfn;
+                    bmpfn=(AnsiString)szBitmapDir + "_map"+IntToStr(mapindex)+".bmp";
                     //Сделать файл скриншота карты mapindex
                     if(CreateMapScreenshot(mapindex-1,bmpfn))
                     {
-                        AnsiString pngfn=ChangeFileExt(bmpfn,".png");
+                        AnsiString pngfn;
+                        pngfn=ChangeFileExt(bmpfn,".png");
                         if(Bmp2Png(bmpfn,pngfn))
                         {
                             //Передача картинки
-                            SendPhoto(id,pngfn,U8("Карта ")+IntToStr(mapindex),user->PeerType);
+                            SendPhoto(id,pngfn,U8("Карта ")+IntToStr(mapindex));
                         }
                     }
                 }
@@ -391,32 +686,55 @@ void MAX_BOT::OnMessages(MaxMessage_LIST & msglist)
             else if(text.SubString(1,4)=="STOP" || text.SubString(1,4)==U8("СТОП"))
             {
                 CloseAvariaForm();
-                SendMessage(id,U8("Команда СТОП выполнена"),user->PeerType);
+                SendMessage(id,U8("Команда СТОП выполнена"));
             }
             else if(text.SubString(1,6)=="LOGXLS")
             {
-                AnsiString fn=(AnsiString)szWorkDir+"_log.xls";DeleteFile(fn);
-                if(LogView){/*Экспорт в XLS файл*/LogView->ExportToXls(fn);/*Передача документа*/SendDoc(id,fn,U8("Журнал ")+Now().DateTimeString(),user->PeerType);}
+                AnsiString fn=(AnsiString)szWorkDir+(AnsiString)"_log.xls";
+                DeleteFile(fn);
+                if(LogView)
+                {
+                    //Экспорт в XLS файл
+                    LogView->ExportToXls(fn);
+                    //Передача документа
+                    SendDoc(id,fn,U8("Журнал ")+Now().DateTimeString());
+                }
             }
             else if(text.SubString(1,3)=="LOG" || text.SubString(1,6)==U8("ЖУРНАЛ"))
             {
-                AnsiString fn=(AnsiString)szWorkDir+"_log.html";DeleteFile(fn);
-                if(LogView){/*Экспорт в HTML файл*/LogView->ExportToHtml(fn);/*Передача документа*/SendDoc(id,fn,U8("Журнал ")+Now().DateTimeString(),user->PeerType);}
+                AnsiString fn=(AnsiString)szWorkDir+(AnsiString)"_log.html";
+                DeleteFile(fn);
+                if(LogView)
+                {
+                    //Экспорт в HTML файл
+                    LogView->ExportToHtml(fn);
+                    //Передача документа
+                    SendDoc(id,fn,U8("Журнал ")+Now().DateTimeString());
+                }
             }
             else if(text.SubString(1,5)=="ALARM" || text.SubString(1,6)==U8("ТРЕВОГ"))
             {
 extern AnsiString CreateAlarmsPdf(void);
                 AnsiString fn=CreateAlarmsPdf();
-                if(fn.Length()){/*Передача документа*/SendDoc(id,fn,U8("Тревоги ")+Now().DateTimeString(),user->PeerType);}
+                if(fn.Length())
+                {
+                    //Передача документа
+                    SendDoc(id,fn,U8("Тревоги ")+Now().DateTimeString());
+                }
             }
             else if(text.SubString(1,4)=="HELP" || text[1]=='?')
             {
                 AnsiString mess=U8("Возможные запросы:\n"
-                    "SCREEN (Экран) - все экраны\nSCREEN x (Экран x) - экран номер x\n"
-                    "MAP x (Карта x) - карта номер x\nLOG (Журнал) - текущий журнал\n"
-                    "LOGXLS - текущий журнал в формате XLS\nALARM (Тревоги) - история тревог PDF\n"
-                    "STOP (Стоп) - закрыть окно аварий\nHELP (?) - помощь\n?? - дополнительные запросы");
-                SendMessage(id,mess,user->PeerType);
+                "SCREEN (Экран) - все экраны\n"
+                "SCREEN x (Экран x) - экран номер x\n"
+                "MAP x (Карта x) - карта номер x\n"
+                "LOG (Журнал) - текущий журнал\n"
+                "LOGXLS - текущий журнал в формате XLS\n"
+                "ALARM (Тревоги) - история тревог PDF\n"
+                "STOP (Стоп) - закрыть окно аварий\n"
+                "HELP (?) - помощь\n"
+                "?? - дополнительные запросы");
+                SendMessage(id,mess);
             }
         }
     }
@@ -427,11 +745,27 @@ void MAX_BOT::SendMessageByAlias(AnsiString alias,AnsiString msg)
 {
     //Проверка посылки по alias
     //Выбираем кому нужно посылать !!!
-    MaxUser_LIST *userlist=new MaxUser_LIST;
+    MaxUser_LIST * userlist=new MaxUser_LIST;
     //Заполнить список пользователями, соответствующих маске псевдонима alias
     UserList->GetUsersByAlias(userlist,alias);
-    if(userlist->Count){/*Есть кому посылать*/for(int i=0;i<userlist->Count;i++){MaxUser *user=userlist->Get(i);SendMessage(user->Id,msg,user->PeerType);}}
-    else if(alias.Length() && isdigit(alias[1])){/*В первом символе маски стоит цифра*/SendMessage(_atoi64(alias.c_str()),msg);}
+    if(userlist->Count)
+    {
+        //Есть кому посылать
+        for(int i=0;i<userlist->Count;i++)
+        {
+            MaxUser * user=userlist->Get(i);
+            SendMessage(user->Id,msg);
+        }
+    }
+    else if(alias.Length())
+    {
+        //По маске alias ничего не найдено
+        if(isdigit(alias[1]))
+        {
+            //В первом символе маски стоит цифра
+            SendMessage(alias,msg);
+        }
+    }
     delete userlist;
 }
 //---------------------------------------------------------------------------
@@ -439,9 +773,30 @@ void MAX_BOT::SendMessageByAlias(AnsiString alias,AnsiString msg)
 void MAX_BOT::SendPhotoByAlias(AnsiString alias,AnsiString fn,AnsiString caption)
 {
     //Проверка посылки по alias
-    MaxUser_LIST *userlist=new MaxUser_LIST;UserList->GetUsersByAlias(userlist,alias);
-    if(userlist->Count){for(int i=0;i<userlist->Count;i++){MaxUser *user=userlist->Get(i);SendPhoto(user->Id,fn,caption,user->PeerType);}}
-    else if(alias.Length() && isdigit(alias[1]))SendPhoto(_atoi64(alias.c_str()),fn,caption);
+    //Выбираем кому нужно посылать !!!
+    MaxUser_LIST * userlist=new MaxUser_LIST;
+    //Заполнить список пользователями, соответствующих маске псевдонима alias
+    UserList->GetUsersByAlias(userlist,alias);
+    if(userlist->Count)
+    {
+        //Есть кому посылать
+        for(int i=0;i<userlist->Count;i++)
+        {
+            MaxUser * user=userlist->Get(i);
+            SendPhoto(user->Id,fn,caption);
+        }
+        delete userlist;
+        return;
+    }
+    else if(alias.Length())
+    {
+        //По маске alias ничего не найдено
+        if(isdigit(alias[1]))
+        {
+            //В первом символе маски стоит цифра
+            SendPhoto(alias,fn,caption);
+        }
+    }
     delete userlist;
 }
 //---------------------------------------------------------------------------
@@ -449,9 +804,30 @@ void MAX_BOT::SendPhotoByAlias(AnsiString alias,AnsiString fn,AnsiString caption
 void MAX_BOT::SendDocByAlias(AnsiString alias,AnsiString fn,AnsiString caption)
 {
     //Проверка посылки по alias
-    MaxUser_LIST *userlist=new MaxUser_LIST;UserList->GetUsersByAlias(userlist,alias);
-    if(userlist->Count){for(int i=0;i<userlist->Count;i++){MaxUser *user=userlist->Get(i);SendDoc(user->Id,fn,caption,user->PeerType);}}
-    else if(alias.Length() && isdigit(alias[1]))SendDoc(_atoi64(alias.c_str()),fn,caption);
+    //Выбираем кому нужно посылать !!!
+    MaxUser_LIST * userlist=new MaxUser_LIST;
+    //Заполнить список пользователями, соответствующих маске псевдонима alias
+    UserList->GetUsersByAlias(userlist,alias);
+    if(userlist->Count)
+    {
+        //Есть кому посылать
+        for(int i=0;i<userlist->Count;i++)
+        {
+            MaxUser * user=userlist->Get(i);
+            SendDoc(user->Id,fn,caption);
+        }
+        delete userlist;
+        return;
+    }
+    else if(alias.Length())
+    {
+        //По маске alias ничего не найдено
+        if(isdigit(alias[1]))
+        {
+            //В первом символе маски стоит цифра
+            SendDoc(alias,fn,caption);
+        }
+    }
     delete userlist;
 }
 //---------------------------------------------------------------------------

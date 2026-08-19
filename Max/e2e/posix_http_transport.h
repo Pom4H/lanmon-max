@@ -1,7 +1,7 @@
 #ifndef max_posix_http_transportH
 #define max_posix_http_transportH
 
-#include "../maxclient.h"
+#include "../api/maxclient.h"
 
 class TPosixHttpTransport : public IMaxHttpTransport
 {

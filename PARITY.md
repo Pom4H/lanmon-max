@@ -1,120 +1,47 @@
-# Telegram → MAX: функциональный паритет
+# Telegram → MAX parity
 
-Этот checklist фиксирует наблюдаемое поведение Telegram-интеграции LanMon, которое должно сохраняться в MAX.
+Источник контракта — реальный каталог `Telegram/` из LanMon.
 
-## Transport / API
+## Зеркальная структура
+
+- [x] `TELEGRAM_BOT` → `MAX_BOT`
+- [x] `TTgBotThread` → `TMaxBotThread`
+- [x] `TB_TASK/TB_TASK_LIST` → `MB_TASK/MB_TASK_LIST`
+- [x] `TgMessage/TgMessage_LIST` → `MaxMessage/MaxMessage_LIST`
+- [x] `TgUser/TgUser_LIST` → `MaxUser/MaxUser_LIST`
+- [x] users/messages находятся в `maxmsg.*`, а не в отдельном application-layer
+- [x] task implementation находится в `maxtask.cpp`
+- [x] `MAX_BOT` не перехватывает callbacks, их назначает `MainForm`
+- [x] прямой `TFastIniFile` Load/Save
+- [x] порядок блоков и комментарии `maxbot.*` повторяют `tgbot.*`
+- [x] альтернативные `lanmon_bot/lanmon_commands/maxsettings/maxusers` удалены
+
+## Поведение
 
 - [x] `GetMe`
-- [x] Long Polling `/updates`
-- [x] MAX `marker`
-- [x] text send
-- [x] image send
-- [x] document/file send
-- [x] `user_id`
-- [x] `chat_id`
-- [x] `PeerType` для сохранённых пользователей
-- [x] JSON escaping
-- [x] CP1251 → UTF-8
-- [x] UTF-8 → CP1251 для VCL mirror
-- [x] HTTP/network errors
-- [x] последний HTTP status/body для `ResponseCode` / `Json`
-
-## Команды LanMon
-
-- [x] `SCREEN` / `ЭКРАН`
-- [x] monitor screenshot → desktop fallback
-- [x] `MAP` / `КАРТА`
-- [x] `STOP` / `СТОП`
-- [x] `LOG` / `ЖУРНАЛ`
-- [x] `LOGXLS`
-- [x] `ALARM` / `ТРЕВОГИ`
-- [x] `HELP` / `?`
-- [x] lowercase Russian commands
-
-## Users / aliases
-
-- [x] `Id`
-- [x] `PeerType`
-- [x] `Name`
-- [x] `Alias`
-- [x] `Comment`
-- [x] `IsBot`
-- [x] `InCount`
-- [x] `OutCount`
-- [x] `Tag`
-- [x] пустая alias mask
-- [x] `*`
-- [x] `!` wildcard одного символа
-- [x] `RequestAlias`
-- [x] `AlarmAlias`
-- [x] numeric alias fallback
-- [x] `$N` free alias
-
-## Settings / state
-
-- [x] `Active`
-- [x] `PeriodReadMessages`
-- [x] `PeriodicReadMessagesPaused`
-- [x] `FlagSendAlarms`
-- [x] `FlagSendAlarmsEnd`
-- [x] `FlagOperatorAlarm`
-- [x] `FlagSendMaps`
-- [x] `UseLanmonLog`
-- [x] bot token/info
-- [x] INI load/save
-- [x] user INI load/save
-- [x] `ReadMessagesCount`
-- [x] `ReadMessagesCountOk`
-- [x] `UserMessageCount`
-
-## Mirror VCL layer
-
-- [x] `TMaxBotThread` аналог `TTgBotThread`
-- [x] `MAX_BOT` аналог `TELEGRAM_BOT`
-- [x] task queue `GETME/READMSG/SENDMSG/SENDPHOTO/SENDDOC`
-- [x] debug/error/read/getMe callbacks
+- [x] polling + MAX marker
+- [x] text/image/file
+- [x] `user_id` / `chat_id`
+- [x] `RequestAlias` / `AlarmAlias`
+- [x] counters / Tag
+- [x] `SCREEN`, `MAP`, `STOP`, `LOG`, `LOGXLS`, `ALARM`, `HELP`
+- [x] русские варианты команд
+- [x] `SendMessageByAlias`, `SendPhotoByAlias`, `SendDocByAlias`
 - [x] `OnNewAlarmState`
-- [x] `SendMessageByAlias`
-- [x] `SendPhotoByAlias`
-- [x] `SendDocByAlias`
-- [x] compatibility callback через существующий `OnTgMessage`
-- [x] порядок секций/комментарии повторяют Telegram там, где логика эквивалентна
+- [x] callback до command gate
+- [x] исторический общий gate `FlagSendMaps`
 
-## Сохранённая legacy-семантика
+## MAX-specific
 
-- [x] script callback вызывается до проверки built-in commands
-- [x] `FlagSendMaps` блокирует все built-in Telegram-команды, несмотря на название
-- [x] built-in command требует известного пользователя с подходящим `RequestAlias`
-- [x] alarm fan-out идёт только по `AlarmAlias`
-- [x] `OutCount` увеличивается при отправке, `InCount` — при принятом сообщении
+- `PeerType` добавлен к пользователю, потому что MAX отдельно адресует user и chat.
+- HTTP/JSON реализация изолирована в `Max/api/` и не меняет архитектуру LanMon.
 
-## Автоматическое доказательство
+## Автоматическая проверка
 
-`Max/tests/test_parity.cpp` проверяет behavioral parity и edge cases.
+`Max/tests/run.sh`:
+- компилирует API/core в C++98 с `-Wall -Wextra -Werror`;
+- проверяет зеркальную структуру исходников.
 
-`Max/e2e/` проверяет настоящий TCP/HTTP MAX flow.
+`Max/e2e/run_e2e.sh` проверяет реальный локальный HTTP flow MAX.
 
-`Max/e2e_lanmon/` проверяет:
-
-1. последовательность Long Poll + marker;
-2. text replies;
-3. image upload + attachment;
-4. file upload + attachment;
-5. screen fallback;
-6. alarm alias fan-out.
-
-Все portable части компилируются в GitHub Actions с:
-
-```text
--std=gnu++98 -Wall -Wextra -Werror
-```
-
-## Что остаётся environment-specific
-
-Это не отсутствующий функционал, а последняя acceptance boundary:
-
-- собрать `Max/maxbot.cpp` и `Max/maxindy.cpp` реальным legacy C++Builder/Indy;
-- настроить trust store/CA MAX;
-- сделать реальный `GET /me`;
-- принять одно реальное `/updates` сообщение;
-- выполнить команду и проверить text/image/file response.
+Окончательная граница acceptance — сборка VCL-файлов реальным C++Builder/Indy из проекта LanMon.
