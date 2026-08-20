@@ -14,28 +14,38 @@ MAX_TEXT MaxUtf8FromAnsi1251(const AnsiString & text)
 //Создание production HTTP/HTTPS транспорта MAX
 TMaxIndyTransport::TMaxIndyTransport()
 {
-    Http=new TInHTTP(NULL);
-    Ssl=new TInSSLIOHandlerSocketOpenSSL(NULL);
+    Http=new TIdHTTP(NULL);
+    Ssl=new TIdSSLIOHandlerSocketOpenSSL(NULL);
 
-    //BCB2007 enum не содержит отдельного значения для TLS 1.2. sslvSSLv23
-    //здесь означает OpenSSL negotiation method, а не принудительный SSLv2/3:
-    //с ABI-совместимым OpenSSL runtime 1.0.x он договаривается о TLS 1.2,
-    //который требует MAX. Старые протоколы MAX server всё равно не принимает.
-    Ssl->SSLOptions->Method=sslvSSLv23;
+    //У Евгения установлен обновлённый Indy 10.6.2 для C++Builder 2007.
+    //В его IdSSLOpenSSL.hpp есть отдельный sslvTLSv1_2, поэтому выбираем
+    //нужный MAX протокол явно, без старого sslvSSLv23 negotiation workaround.
+    Ssl->SSLOptions->Method=sslvTLSv1_2;
+
+    //Рано проверяем DLL OpenSSL: так несовместимый runtime даёт понятную
+    //ошибку до первого HTTP-запроса, а не неочевидный exception из IOHandler.
+    if(!LoadOpenSSLLibrary())
+    {
+        StartupError="OpenSSL DLL load failed: "+WhichFailedToLoad();
+    }
+    else if(!IsOpenSSL_TLSv1_2_Available())
+    {
+        StartupError="Loaded OpenSSL runtime does not support TLS 1.2";
+    }
 
     //MAX требует доверять цепочке Минцифры. Bundle лежит рядом с executable.
     AnsiString rootCert=ExtractFilePath(Application->ExeName)+"certs\\max-ca.pem";
-    if(FileExists(rootCert))
-    {
-        Ssl->SSLOptions->RootCertFile=rootCert;
-        //Не отключаем проверку сертификата сервера.
-        Ssl->SSLOptions->VerifyMode=TInSSLVerifyModeSet()<<sslvrfPeer;
-        Ssl->SSLOptions->VerifyDepth=9;
-    }
-    else
+    if(!FileExists(rootCert))
     {
         //Fail-closed: без trust bundle нельзя тихо переходить к непроверенному TLS.
         StartupError="MAX CA bundle not found: "+rootCert;
+    }
+    else
+    {
+        Ssl->SSLOptions->RootCertFile=rootCert;
+        //Не отключаем проверку сертификата сервера.
+        Ssl->SSLOptions->VerifyMode=TIdSSLVerifyModeSet()<<sslvrfPeer;
+        Ssl->SSLOptions->VerifyDepth=9;
     }
 
     Http->IOHandler=Ssl;
@@ -65,7 +75,7 @@ void TMaxIndyTransport::SleepMilliseconds(unsigned int milliseconds)
     ::Sleep(milliseconds);
 }
 
-//Перенести заголовки MAX_API_CLIENT в TInHTTP
+//Перенести заголовки MAX_API_CLIENT в TIdHTTP
 void TMaxIndyTransport::ApplyHeaders(const MAX_HTTP_HEADERS & headers)
 {
     Http->Request->CustomHeaders->Clear();
@@ -88,10 +98,12 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::ReadResponse(TMemoryStream * stream,const A
     if(stream)
     {
         stream->Position=0;
-        TStringList * sl=new TStringList;
-        sl->LoadFromStream(stream);
-        r.Body=sl->Text;
-        delete sl;
+        int n=(int)stream->Size;
+        if(n>0)
+        {
+            r.Body.SetLength(n);
+            stream->ReadBuffer(&r.Body[1],n);
+        }
     }
     return r;
 }
@@ -152,7 +164,7 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::PostMultipartFile(const MAX_TEXT & url,
     if(StartupFailed(blocked))return blocked;
 
     ApplyHeaders(headers);
-    TInMultipartFormDataStream * form=new TInMultipartFormDataStream;
+    TIdMultiPartFormDataStream * form=new TIdMultiPartFormDataStream;
     TMemoryStream * output=new TMemoryStream;
     AnsiString ex="";
     try
