@@ -1,20 +1,20 @@
 #ifndef maxindyH
 #define maxindyH
 
-//C++Builder 2007 поставляется с Indy, чьи generated headers называются In*.
-//Не использовать здесь IdHTTP.hpp/IdSSLOpenSSL.hpp из более новых Builder.
-#include <InHTTP.hpp>
-#include <InSSLOpenSSL.hpp>
-#include <InMultipartFormData.hpp>
+//Фактическое окружение LanMon: C++Builder 2007 с обновлённым Indy 10.6.2.
+//Присланные generated headers имеют современные Id* имена и TLS 1.2 enum.
+#include <IdHTTP.hpp>
+#include <IdSSLOpenSSL.hpp>
+#include <IdMultipartFormData.hpp>
 #include "maxclient.h"
 
-//Production HTTP/HTTPS transport MAX для старого C++Builder/Indy
+//Production HTTP/HTTPS transport MAX для C++Builder 2007 + Indy 10.6.2
 class TMaxIndyTransport : public IMaxHttpTransport
 {
-    //HTTP-клиент Indy из фактической поставки BCB2007
-    TInHTTP * Http;
-    //OpenSSL IOHandler той же поставки
-    TInSSLIOHandlerSocketOpenSSL * Ssl;
+    //HTTP-клиент обновлённого Indy
+    TIdHTTP * Http;
+    //OpenSSL IOHandler обновлённого Indy
+    TIdSSLIOHandlerSocketOpenSSL * Ssl;
     //Ошибка начальной TLS-конфигурации. При ней transport работает fail-closed.
     AnsiString StartupError;
 public:
@@ -32,11 +32,11 @@ public:
     virtual void SleepMilliseconds(unsigned int milliseconds);
 
     //Доступ к SSL-настройкам для интеграции/диагностики LanMon
-    TInSSLIOHandlerSocketOpenSSL * SSL(){return Ssl;}
+    TIdSSLIOHandlerSocketOpenSSL * SSL(){return Ssl;}
 private:
-    //Если обязательный CA bundle не настроен, вернуть ошибку без сетевого запроса
+    //Если обязательный CA bundle/OpenSSL TLS 1.2 не настроены, вернуть ошибку без запроса
     bool StartupFailed(MAX_HTTP_RESPONSE & response) const;
-    //Перенести VCL-список заголовков MAX в TInHTTP::Request
+    //Перенести VCL-список заголовков MAX в TIdHTTP::Request
     void ApplyHeaders(const MAX_HTTP_HEADERS & headers);
     //Собрать единый MAX_HTTP_RESPONSE из Indy response/exception
     MAX_HTTP_RESPONSE ReadResponse(TMemoryStream * stream,const AnsiString & exceptionText);
