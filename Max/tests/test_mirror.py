@@ -154,13 +154,14 @@ need(
 need(
     "api/maxindy.h",
     "class TMaxIndyTransport", "StartupError", "StartupFailed",
-    "TInHTTP", "TInSSLIOHandlerSocketOpenSSL",
-    "//Production HTTP/HTTPS transport MAX для старого C++Builder/Indy",
+    "TIdHTTP", "TIdSSLIOHandlerSocketOpenSSL",
+    "//Production HTTP/HTTPS transport MAX для C++Builder 2007 + Indy 10.6.2",
 )
 need(
     "api/maxindy.cpp",
-    '"certs\\\\max-ca.pem"', "RootCertFile", "sslvrfPeer", "sslvSSLv23",
-    "TInMultipartFormDataStream", "MAX CA bundle not found", "SleepMilliseconds",
+    '"certs\\\\max-ca.pem"', "RootCertFile", "sslvrfPeer", "sslvTLSv1_2",
+    "TIdMultiPartFormDataStream", "LoadOpenSSLLibrary", "IsOpenSSL_TLSv1_2_Available",
+    "MAX CA bundle not found", "SleepMilliseconds",
 )
 
 # Vendored CA is now part of the deliverable rather than an undocumented external file.
@@ -179,7 +180,7 @@ if not (root / "certs" / "README.md").is_file():
 need("tests/test_maxcore.cpp", "// Unit tests protocol-level MAX functions", "MaxParseUpdates", "surrogate")
 need("tests/test_maxclient.cpp", "// Unit tests MAX_API_CLIENT behavior", "attachment.not.ready", "SleepMilliseconds")
 need("tests/test_contract.py", "Behavioral source contract", "attachment.not.ready", "fail-closed")
-need("tests/test_bcb2007.py", "C++Builder 2007", "In* Indy", "no STL")
+need("tests/test_bcb2007.py", "C++Builder 2007", "Indy 10.6.2", "no STL")
 need("tests/test_cert.sh", "MAX Ministry CA bundle verified", "ROOT_SHA256", "SUB_SHA256")
 need("e2e/e2e_harness.cpp", "// End-to-end test of MAX_API_CLIENT", "Retry E2E")
 need("e2e/mock_max_server.py", "Local HTTP model of the MAX endpoints", "attachment.not.ready", "unexpected_reupload")
