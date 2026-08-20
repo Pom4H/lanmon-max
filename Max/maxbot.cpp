@@ -355,7 +355,7 @@ void TMaxBotThread::DoSendDoc(void)
         //Не удалось
         ExeptionText=error.c_str();
         ERROR_DBG_MSG(GetErrorText()+inf);
-        return false;
+        return;
     }
     DBG_MSG("Успешно послан документ"+inf);
 }
@@ -564,7 +564,7 @@ void MAX_BOT::Save(AnsiString fn)
     TFastIniFile ini(fn,true);
     //Разрешить работу MAX
     ini.WriteBool(MaxSecSETUP,"Active",Active);
-    //Идентификатор разработчика MAX бота
+    //Идентификатор разработчика бота
     ini.WriteString(MaxSecSETUP,"BotApi",BotApi);
     //Период чтения сообщений с MAX сервера, с
     ini.WriteInteger(MaxSecSETUP,"PeriodReadMessages",PeriodReadMessages);
