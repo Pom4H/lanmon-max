@@ -19,7 +19,7 @@ TMaxIndyTransport::TMaxIndyTransport()
 
     //У Евгения установлен обновлённый Indy 10.6.2 для C++Builder 2007.
     //В его IdSSLOpenSSL.hpp есть отдельный sslvTLSv1_2, поэтому выбираем
-    //нужный MAX протокол явно, без старого sslvSSLv23 negotiation workaround.
+    //нужный MAX протокол явно, без старого negotiation workaround.
     Ssl->SSLOptions->Method=sslvTLSv1_2;
 
     //Рано проверяем DLL OpenSSL: так несовместимый runtime даёт понятную
