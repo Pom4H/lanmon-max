@@ -4,7 +4,7 @@
 #include "maxcore.h"
 
 #ifdef __BORLANDC__
-//HTTP-заголовки на TStringList: production BCB2007 не использует std::map.
+//HTTP-заголовки на TStringList: production BCB2007 не использует STL map.
 class MAX_HTTP_HEADERS
 {
     TStringList * Items;
