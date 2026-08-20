@@ -40,6 +40,27 @@ def first_borland_branch(text, label):
     return text[start:end]
 
 
+def function_body(text, signature, label):
+    pos = text.find(signature)
+    if pos < 0:
+        errors.append(f"{label}: missing function {signature!r}")
+        return ""
+    start = text.find("{", pos)
+    if start < 0:
+        errors.append(f"{label}: missing function body")
+        return ""
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:i]
+    errors.append(f"{label}: unclosed function body")
+    return ""
+
+
 core_h = read("api/maxcore.h")
 client_h = read("api/maxclient.h")
 core_cpp = read("api/maxcore.cpp")
@@ -67,6 +88,11 @@ for path, text in (("maxbot.cpp", bot_cpp), ("maxmsg.h", msg_h), ("maxmsg.cpp", 
     absent(text, path, "#include <string>", "#include <vector>", "#include <map>", "std::string", "std::vector", "std::map")
 require(bot_cpp, "maxbot.cpp", "MAX_TEXT error;", "static MAX_TEXT MaxUtf8")
 require(msg_cpp, "maxmsg.cpp", "wchar_t * w=new wchar_t[wn];", "char * a=new char[an];")
+
+# Void worker functions must stay valid C++ after compatibility refactors.
+for signature in ("void TMaxBotThread::DoSendPhoto", "void TMaxBotThread::DoSendDoc"):
+    body = function_body(bot_cpp, signature, signature)
+    absent(body, signature, "return false;", "return true;")
 
 # The customer's BCB2007 headers expose In*, not Id*, classes.
 require(
