@@ -1,8 +1,17 @@
 #ifndef maxcoreH
 #define maxcoreH
 
+// C++Builder 2007 must not instantiate the old STL in production.
+// Linux CI keeps std::string/std::vector only in the non-Borland branch.
+#ifdef __BORLANDC__
+#include <System.hpp>
+#include <Classes.hpp>
+typedef AnsiString MAX_TEXT;
+#else
 #include <string>
 #include <vector>
+typedef std::string MAX_TEXT;
+#endif
 
 //Единый 64-битный тип для старого C++Builder и Linux CI
 #ifdef __BORLANDC__
@@ -32,9 +41,9 @@ struct MAX_PEER
 struct MAX_BOT_INFO
 {
     max_int64 Id;
-    std::string FirstName;
-    std::string LastName;
-    std::string UserName;
+    MAX_TEXT FirstName;
+    MAX_TEXT LastName;
+    MAX_TEXT UserName;
     bool IsBot;
     MAX_BOT_INFO() : Id(0), IsBot(false) {}
     void Clear();
@@ -44,54 +53,79 @@ struct MAX_BOT_INFO
 //Эта структура скрывает JSON-формат API от VCL-слоя maxmsg/maxbot
 struct MAX_MESSAGE
 {
-    std::string UpdateType;       //Тип update, например message_created
-    max_int64 UpdateTimestamp;    //Timestamp самого update
-    max_int64 MessageTimestamp;   //Timestamp сообщения
-    max_int64 ChatId;             //Идентификатор чата
-    max_int64 UserId;             //Идентификатор отправителя
-    std::string ChatType;         //Тип чата MAX
-    std::string MessageId;        //mid сообщения
-    std::string Text;             //UTF-8 текст
-    std::string FirstName;        //Имя отправителя
-    std::string LastName;         //Фамилия отправителя
-    std::string UserName;         //Username отправителя
-    bool SenderIsBot;             //True, если отправитель бот
+    MAX_TEXT UpdateType;       //Тип update, например message_created
+    max_int64 UpdateTimestamp; //Timestamp самого update
+    max_int64 MessageTimestamp;//Timestamp сообщения
+    max_int64 ChatId;          //Идентификатор чата
+    max_int64 UserId;          //Идентификатор отправителя
+    MAX_TEXT ChatType;         //Тип чата MAX
+    MAX_TEXT MessageId;        //mid сообщения
+    MAX_TEXT Text;             //UTF-8 текст
+    MAX_TEXT FirstName;        //Имя отправителя
+    MAX_TEXT LastName;         //Фамилия отправителя
+    MAX_TEXT UserName;         //Username отправителя
+    bool SenderIsBot;          //True, если отправитель бот
 
     MAX_MESSAGE();
 };
+
+#ifdef __BORLANDC__
+//VCL-список значений MAX_MESSAGE без std::vector.
+//Снаружи сохраняет минимальный vector-подобный API, чтобы верхний слой LanMon
+//не зависел от того, каким контейнером хранится результат парсинга.
+class MAX_MESSAGE_ARRAY
+{
+    TList * List;
+public:
+    MAX_MESSAGE_ARRAY();
+    MAX_MESSAGE_ARRAY(const MAX_MESSAGE_ARRAY & source);
+    ~MAX_MESSAGE_ARRAY();
+    MAX_MESSAGE_ARRAY & operator=(const MAX_MESSAGE_ARRAY & source);
+    int size() const;
+    bool empty() const;
+    void clear();
+    void push_back(const MAX_MESSAGE & message);
+    MAX_MESSAGE & operator[](int index);
+    const MAX_MESSAGE & operator[](int index) const;
+};
+#endif
 
 //Ответ GET /updates
 struct MAX_UPDATES
 {
     bool HasMarker;               //Сервер вернул новый marker
     max_int64 Marker;             //Курсор следующего Long Poll чтения
+#ifdef __BORLANDC__
+    MAX_MESSAGE_ARRAY Messages;
+#else
     std::vector<MAX_MESSAGE> Messages;
+#endif
     MAX_UPDATES() : HasMarker(false), Marker(0) {}
     void Clear();
 };
 
 //Экранирование строки для JSON
-std::string MaxJsonEscape(const std::string & value);
+MAX_TEXT MaxJsonEscape(const MAX_TEXT & value);
 //Преобразование CP1251 LanMon -> UTF-8 MAX
-std::string MaxUtf8FromCp1251(const std::string & value);
+MAX_TEXT MaxUtf8FromCp1251(const MAX_TEXT & value);
 //Построить URL GET /updates с timeout/limit/marker
-std::string MaxBuildUpdatesUrl(bool hasMarker, max_int64 marker, int timeoutSeconds, int limit);
+MAX_TEXT MaxBuildUpdatesUrl(bool hasMarker, max_int64 marker, int timeoutSeconds, int limit);
 //Построить URL POST /messages с user_id или chat_id
-std::string MaxBuildSendMessageUrl(const MAX_PEER & peer);
+MAX_TEXT MaxBuildSendMessageUrl(const MAX_PEER & peer);
 //Построить JSON обычного текстового сообщения
-std::string MaxBuildSendMessageBody(const std::string & text);
+MAX_TEXT MaxBuildSendMessageBody(const MAX_TEXT & text);
 //Построить JSON сообщения с image attachment token
-std::string MaxBuildImageMessageBody(const std::string & text, const std::string & token);
+MAX_TEXT MaxBuildImageMessageBody(const MAX_TEXT & text, const MAX_TEXT & token);
 //Преобразовать 64-битный идентификатор в строку без зависимости от C++11
-std::string MaxInt64ToString(max_int64 value);
+MAX_TEXT MaxInt64ToString(max_int64 value);
 //Получить upload URL из ответа POST /uploads
-bool MaxParseUploadUrl(const std::string & json, std::string & url, std::string & error);
+bool MaxParseUploadUrl(const MAX_TEXT & json, MAX_TEXT & url, MAX_TEXT & error);
 //Получить attachment token из ответа upload-host
-bool MaxParseUploadToken(const std::string & json, std::string & token, std::string & error);
+bool MaxParseUploadToken(const MAX_TEXT & json, MAX_TEXT & token, MAX_TEXT & error);
 
 //Декодировать ответ GET /me
-bool MaxParseBotInfo(const std::string & json, MAX_BOT_INFO & info, std::string & error);
+bool MaxParseBotInfo(const MAX_TEXT & json, MAX_BOT_INFO & info, MAX_TEXT & error);
 //Декодировать ответ GET /updates
-bool MaxParseUpdates(const std::string & json, MAX_UPDATES & updates, std::string & error);
+bool MaxParseUpdates(const MAX_TEXT & json, MAX_UPDATES & updates, MAX_TEXT & error);
 
 #endif
