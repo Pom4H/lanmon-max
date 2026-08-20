@@ -17,10 +17,10 @@ TMaxIndyTransport::TMaxIndyTransport()
     Http=new TInHTTP(NULL);
     Ssl=new TInSSLIOHandlerSocketOpenSSL(NULL);
 
-    //BCB2007 enum не содержит sslvTLSv1_2. sslvSSLv23 здесь означает
-    //OpenSSL negotiation method, а не принудительный SSLv2/3: с ABI-совместимым
-    //OpenSSL runtime 1.0.x он договаривается о TLS 1.2, который требует MAX.
-    //Старые протоколы MAX server всё равно не принимает.
+    //BCB2007 enum не содержит отдельного значения для TLS 1.2. sslvSSLv23
+    //здесь означает OpenSSL negotiation method, а не принудительный SSLv2/3:
+    //с ABI-совместимым OpenSSL runtime 1.0.x он договаривается о TLS 1.2,
+    //который требует MAX. Старые протоколы MAX server всё равно не принимает.
     Ssl->SSLOptions->Method=sslvSSLv23;
 
     //MAX требует доверять цепочке Минцифры. Bundle лежит рядом с executable.
