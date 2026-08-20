@@ -2,7 +2,6 @@
 #include <vcl.h>
 #include <windows.h>
 #include <time.h>
-#include <vector>
 //---------------------------------------------------------------------------
 #pragma hdrstop
 #include "maxmsg.h"
@@ -10,18 +9,26 @@
 #pragma package(smart_init)
 //---------------------------------------------------------------------------
 //Преобразование входящего UTF-8 MAX в AnsiString/CP1251
-AnsiString MaxAnsiFromUtf8(const std::string & s)
+//Буферы выделяются обычным new[]: STL в BCB2007 production unit не нужен.
+AnsiString MaxAnsiFromUtf8(const MAX_TEXT & s)
 {
-    if(s.empty())return "";
+    if(!s.Length())return "";
     int wn=MultiByteToWideChar(CP_UTF8,0,s.c_str(),-1,NULL,0);
     if(wn<=0)return AnsiString(s.c_str());
-    std::vector<wchar_t> w((size_t)wn);
-    MultiByteToWideChar(CP_UTF8,0,s.c_str(),-1,&w[0],wn);
-    int an=WideCharToMultiByte(1251,0,&w[0],-1,NULL,0,NULL,NULL);
-    if(an<=0)return AnsiString(s.c_str());
-    std::vector<char> a((size_t)an);
-    WideCharToMultiByte(1251,0,&w[0],-1,&a[0],an,NULL,NULL);
-    return AnsiString(&a[0]);
+    wchar_t * w=new wchar_t[wn];
+    MultiByteToWideChar(CP_UTF8,0,s.c_str(),-1,w,wn);
+    int an=WideCharToMultiByte(1251,0,w,-1,NULL,0,NULL,NULL);
+    if(an<=0)
+    {
+        delete [] w;
+        return AnsiString(s.c_str());
+    }
+    char * a=new char[an];
+    WideCharToMultiByte(1251,0,w,-1,a,an,NULL,NULL);
+    AnsiString result(a);
+    delete [] a;
+    delete [] w;
+    return result;
 }
 //---------------------------------------------------------------------------
 //Копирование данных отправителя сообщения
@@ -260,7 +267,7 @@ void MaxMessage_LIST::CopyFrom(const MAX_UPDATES & updates)
 {
     Clear();
     //MAX_API_CLIENT уже разобрал JSON; здесь сохраняем Telegram-подобный список сообщений
-    for(size_t i=0;i<updates.Messages.size();i++)Add()->CopyFrom(updates.Messages[i]);
+    for(int i=0;i<updates.Messages.size();i++)Add()->CopyFrom(updates.Messages[i]);
 }
 //---------------------------------------------------------------------------
 //Получить последнее значение update_id
