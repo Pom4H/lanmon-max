@@ -212,7 +212,7 @@ ordered(ctor, "MAX_BOT lifecycle", "new TMaxBotThread(true)", "Thread->Resume()"
 absent(ctor, "MAX_BOT lifecycle", "Thread->OnTaskReadMessages=", "Thread->OnPeriodicReadMessages=", "Thread->OnGetMe=")
 
 # ---------------------------------------------------------------------------
-# TLS is fail-closed and uses the exact In* Indy API present in BCB2007.
+# TLS is fail-closed and targets Eugene's updated Indy 10.6.2 installation.
 require(
     indy,
     "Indy TLS",
@@ -220,11 +220,13 @@ require(
     "RootCertFile=rootCert",
     "sslvrfPeer",
     "VerifyDepth=9",
-    "sslvSSLv23",
-    "TInSSLVerifyModeSet",
+    "sslvTLSv1_2",
+    "TIdSSLVerifyModeSet",
+    "LoadOpenSSLLibrary()",
+    "IsOpenSSL_TLSv1_2_Available()",
     'StartupError="MAX CA bundle not found: "+rootCert;',
 )
-absent(indy, "Indy TLS", "sslvTLSv1_2", "TIdSSLVerifyModeSet")
+absent(indy, "Indy TLS", "sslvSSLv23", "TInSSLVerifyModeSet")
 startup_failed = function_body(indy, "bool TMaxIndyTransport::StartupFailed")
 require(startup_failed, "Indy TLS fail-closed", "StartupError", "response.StatusCode=0", "response.Error=StartupError")
 for signature in (
