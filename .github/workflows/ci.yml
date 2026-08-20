@@ -3,7 +3,6 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
   pull_request:
 
 permissions:
@@ -38,7 +37,7 @@ jobs:
           python3 --version
           openssl version
 
-      - name: MAX API unit tests (C++98) + mirror source check
+      - name: MAX API unit tests (C++98) + BCB2007 source guards
         run: bash ./Max/tests/run.sh
 
       - name: MAX TLS 1.2 with Ministry CA
