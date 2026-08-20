@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Static compatibility guard for the actual C++Builder 2007/VCL toolchain.
+"""Static compatibility guard for Eugene's actual C++Builder 2007 toolchain.
 
-Linux CI cannot run bcc32, so this test protects the source-level contract that
-matters for the customer build: no STL in the Borland production path and only
-the In* Indy classes that exist in the supplied BCB2007 headers.
+The project uses BCB2007 with an updated Indy 10.6.2 installation. Linux CI
+cannot run bcc32, so this test protects the source-level contract we can verify:
+no STL in the Borland production path, and the exact Id* Indy/TLS 1.2 API from
+the supplied generated headers.
 """
 from pathlib import Path
 import sys
@@ -78,7 +79,8 @@ require(core_h, "maxcore.h VCL messages", "class MAX_MESSAGE_ARRAY", "TList * Li
 
 client_borland = first_borland_branch(client_h, "maxclient.h")
 require(client_borland, "maxclient.h Borland", "class MAX_HTTP_HEADERS", "TStringList * Items;")
-absent(client_borland, "maxclient.h Borland", "<string>", "<vector>", "<map>", "std::")
+# Comments may mention std::map while documenting what was removed; check actual headers only.
+absent(client_borland, "maxclient.h Borland", "#include <string>", "#include <vector>", "#include <map>")
 
 # Portable containers are allowed only behind the non-Borland branch for CI.
 require(core_cpp, "maxcore.cpp portable guard", "#ifndef __BORLANDC__\n#include <vector>\n#endif")
@@ -94,27 +96,45 @@ for signature in ("void TMaxBotThread::DoSendPhoto", "void TMaxBotThread::DoSend
     body = function_body(bot_cpp, signature, signature)
     absent(body, signature, "return false;", "return true;")
 
-# The customer's BCB2007 headers expose In*, not Id*, classes.
+# Eugene removed stock BCB2007 Indy and installed Indy 10.6.2.
+# His supplied generated headers expose Id* classes and an explicit TLS 1.2 enum.
 require(
     indy_h,
-    "maxindy.h BCB2007 Indy",
-    "#include <InHTTP.hpp>",
-    "#include <InSSLOpenSSL.hpp>",
-    "#include <InMultipartFormData.hpp>",
-    "TInHTTP * Http;",
-    "TInSSLIOHandlerSocketOpenSSL * Ssl;",
+    "maxindy.h Indy 10.6",
+    "#include <IdHTTP.hpp>",
+    "#include <IdSSLOpenSSL.hpp>",
+    "#include <IdMultipartFormData.hpp>",
+    "TIdHTTP * Http;",
+    "TIdSSLIOHandlerSocketOpenSSL * Ssl;",
 )
-absent(indy_h, "maxindy.h BCB2007 Indy", "<IdHTTP.hpp>", "<IdSSLOpenSSL.hpp>", "<IdMultipartFormData.hpp>", "TIdHTTP", "TIdSSLIOHandlerSocketOpenSSL")
-require(indy_cpp, "maxindy.cpp BCB2007 Indy", "TInMultipartFormDataStream", "TInSSLVerifyModeSet", "sslvSSLv23")
-absent(indy_cpp, "maxindy.cpp BCB2007 Indy", "TIdMultiPartFormDataStream", "TIdSSLVerifyModeSet", "sslvTLSv1_2")
+absent(indy_h, "maxindy.h Indy 10.6", "<InHTTP.hpp>", "<InSSLOpenSSL.hpp>", "<InMultipartFormData.hpp>", "TInHTTP", "TInSSLIOHandlerSocketOpenSSL")
+require(
+    indy_cpp,
+    "maxindy.cpp Indy 10.6",
+    "TIdMultiPartFormDataStream",
+    "TIdSSLVerifyModeSet",
+    "sslvTLSv1_2",
+    "LoadOpenSSLLibrary()",
+    "IsOpenSSL_TLSv1_2_Available()",
+)
+absent(indy_cpp, "maxindy.cpp Indy 10.6", "TInMultipartFormDataStream", "TInSSLVerifyModeSet", "sslvSSLv23")
 
-# TLS remains fail-closed even though BCB2007 selects TLS 1.2 through negotiation.
-require(indy_cpp, "maxindy.cpp TLS", '"certs\\\\max-ca.pem"', "RootCertFile=rootCert", "sslvrfPeer", "VerifyDepth=9", 'StartupError="MAX CA bundle not found: "+rootCert;')
+# TLS stays explicit and fail-closed with the Ministry CA bundle.
+require(
+    indy_cpp,
+    "maxindy.cpp TLS",
+    '"certs\\\\max-ca.pem"',
+    "RootCertFile=rootCert",
+    "sslvrfPeer",
+    "VerifyDepth=9",
+    'StartupError="MAX CA bundle not found: "+rootCert;',
+    'StartupError="Loaded OpenSSL runtime does not support TLS 1.2";',
+)
 
 if errors:
-    print("BCB2007 COMPATIBILITY CHECK FAILED")
+    print("BCB2007 / INDY 10.6 COMPATIBILITY CHECK FAILED")
     for error in errors:
         print(" -", error)
     sys.exit(1)
 
-print("C++Builder 2007 VCL/Indy compatibility source check passed")
+print("C++Builder 2007 + Indy 10.6.2 compatibility source check passed")
