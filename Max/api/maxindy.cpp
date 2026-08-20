@@ -6,31 +6,30 @@
 #pragma package(smart_init)
 
 //Преобразование исходящего LanMon AnsiString/CP1251 в UTF-8 MAX
-std::string MaxUtf8FromAnsi1251(const AnsiString & text)
+MAX_TEXT MaxUtf8FromAnsi1251(const AnsiString & text)
 {
-    return MaxUtf8FromCp1251(std::string(text.c_str(), text.Length()));
+    return MaxUtf8FromCp1251(text);
 }
 
 //Создание production HTTP/HTTPS транспорта MAX
 TMaxIndyTransport::TMaxIndyTransport()
 {
-    Http=new TIdHTTP(NULL);
-    Ssl=new TIdSSLIOHandlerSocketOpenSSL(NULL);
-    //MAX API должен работать по TLS; для legacy OpenSSL фиксируем TLS 1.2
-    Ssl->SSLOptions->Method=sslvTLSv1_2;
+    Http=new TInHTTP(NULL);
+    Ssl=new TInSSLIOHandlerSocketOpenSSL(NULL);
 
-    //MAX с 19.07.2026 требует добавить сертификат Минцифры в доверенные.
-    //Для legacy LanMon используем явный PEM bundle рядом с executable:
-    //  <каталог lanmon4.exe>\certs\max-ca.pem
-    //TIdSSLIOHandlerSocketOpenSSL старых C++Builder/Indy не следует считать
-    //автоматически использующим Windows Certificate Store.
+    //BCB2007 enum не содержит sslvTLSv1_2. sslvSSLv23 здесь означает
+    //OpenSSL negotiation method, а не принудительный SSLv2/3: с ABI-совместимым
+    //OpenSSL runtime 1.0.x он договаривается о TLS 1.2, который требует MAX.
+    //Старые протоколы MAX server всё равно не принимает.
+    Ssl->SSLOptions->Method=sslvSSLv23;
+
+    //MAX требует доверять цепочке Минцифры. Bundle лежит рядом с executable.
     AnsiString rootCert=ExtractFilePath(Application->ExeName)+"certs\\max-ca.pem";
     if(FileExists(rootCert))
     {
-        //CA bundle должен содержать цепочки, нужные platform-api2.max.ru и upload-hosts.
         Ssl->SSLOptions->RootCertFile=rootCert;
-        //Не отключаем TLS verification: проверяем сертификат сервера
-        Ssl->SSLOptions->VerifyMode=TIdSSLVerifyModeSet()<<sslvrfPeer;
+        //Не отключаем проверку сертификата сервера.
+        Ssl->SSLOptions->VerifyMode=TInSSLVerifyModeSet()<<sslvrfPeer;
         Ssl->SSLOptions->VerifyDepth=9;
     }
     else
@@ -40,7 +39,6 @@ TMaxIndyTransport::TMaxIndyTransport()
     }
 
     Http->IOHandler=Ssl;
-    //Upload endpoint или API могут вернуть redirect
     Http->HandleRedirects=true;
     Http->Request->UserAgent="LanMon MAX adapter";
 }
@@ -57,7 +55,7 @@ bool TMaxIndyTransport::StartupFailed(MAX_HTTP_RESPONSE & response) const
 {
     if(!StartupError.Length())return false;
     response.StatusCode=0;
-    response.Error=StartupError.c_str();
+    response.Error=StartupError;
     return true;
 }
 
@@ -67,38 +65,39 @@ void TMaxIndyTransport::SleepMilliseconds(unsigned int milliseconds)
     ::Sleep(milliseconds);
 }
 
-//Перенести заголовки MAX_API_CLIENT в TIdHTTP
-void TMaxIndyTransport::ApplyHeaders(const std::map<std::string,std::string> & headers)
+//Перенести заголовки MAX_API_CLIENT в TInHTTP
+void TMaxIndyTransport::ApplyHeaders(const MAX_HTTP_HEADERS & headers)
 {
     Http->Request->CustomHeaders->Clear();
     Http->Request->ContentType="";
-    std::map<std::string,std::string>::const_iterator it=headers.begin();
-    for(;it!=headers.end();++it) {
-        if(it->first=="Content-Type") Http->Request->ContentType=AnsiString(it->second.c_str());
-        else Http->Request->CustomHeaders->Values[AnsiString(it->first.c_str())]=AnsiString(it->second.c_str());
+    for(int i=0;i<headers.Count();++i)
+    {
+        AnsiString name=headers.Name(i);
+        AnsiString value=headers.Value(i);
+        if(name=="Content-Type")Http->Request->ContentType=value;
+        else Http->Request->CustomHeaders->Values[name]=value;
     }
 }
 
 //Собрать единый результат HTTP операции для MAX_API_CLIENT
-MAX_HTTP_RESPONSE TMaxIndyTransport::ReadResponse(TMemoryStream * stream, const AnsiString & exceptionText)
+MAX_HTTP_RESPONSE TMaxIndyTransport::ReadResponse(TMemoryStream * stream,const AnsiString & exceptionText)
 {
     MAX_HTTP_RESPONSE r;
-    //Indy сохраняет последний HTTP status в TIdHTTP::ResponseCode
     r.StatusCode=Http->ResponseCode;
-    if(exceptionText.Length()) r.Error=exceptionText.c_str();
-    if(stream) {
-        //Прочитать тело ответа как текст JSON
+    if(exceptionText.Length())r.Error=exceptionText;
+    if(stream)
+    {
         stream->Position=0;
         TStringList * sl=new TStringList;
         sl->LoadFromStream(stream);
-        r.Body=sl->Text.c_str();
+        r.Body=sl->Text;
         delete sl;
     }
     return r;
 }
 
 //HTTP GET
-MAX_HTTP_RESPONSE TMaxIndyTransport::Get(const std::string & url,const std::map<std::string,std::string> & headers)
+MAX_HTTP_RESPONSE TMaxIndyTransport::Get(const MAX_TEXT & url,const MAX_HTTP_HEADERS & headers)
 {
     MAX_HTTP_RESPONSE blocked;
     if(StartupFailed(blocked))return blocked;
@@ -106,30 +105,38 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::Get(const std::string & url,const std::map<
     ApplyHeaders(headers);
     TMemoryStream * stream=new TMemoryStream;
     AnsiString ex="";
-    try { Http->Get(AnsiString(url.c_str()),stream); }
-    catch(EIdException &E) { ex=E.Message; }
-    catch(...) { ex="Unknown Indy exception"; }
+    try
+    {
+        Http->Get(url,stream);
+    }
+    catch(Exception & E)
+    {
+        ex=E.Message;
+    }
     MAX_HTTP_RESPONSE r=ReadResponse(stream,ex);
     delete stream;
-    //Старый LanMon не держит HTTP соединение между заданиями потока
     Http->Disconnect();
     return r;
 }
 
 //HTTP POST
-MAX_HTTP_RESPONSE TMaxIndyTransport::Post(const std::string & url,const std::map<std::string,std::string> & headers,const std::string & body)
+MAX_HTTP_RESPONSE TMaxIndyTransport::Post(const MAX_TEXT & url,const MAX_HTTP_HEADERS & headers,const MAX_TEXT & body)
 {
     MAX_HTTP_RESPONSE blocked;
     if(StartupFailed(blocked))return blocked;
 
     ApplyHeaders(headers);
-    //JSON MAX отправляется как строковый stream
-    TStringStream * input=new TStringStream(AnsiString(body.c_str()));
+    TStringStream * input=new TStringStream(body);
     TMemoryStream * output=new TMemoryStream;
     AnsiString ex="";
-    try { Http->Post(AnsiString(url.c_str()),input,output); }
-    catch(EIdException &E) { ex=E.Message; }
-    catch(...) { ex="Unknown Indy exception"; }
+    try
+    {
+        Http->Post(url,input,output);
+    }
+    catch(Exception & E)
+    {
+        ex=E.Message;
+    }
     MAX_HTTP_RESPONSE r=ReadResponse(output,ex);
     delete output;
     delete input;
@@ -138,25 +145,27 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::Post(const std::string & url,const std::map
 }
 
 //Multipart upload файла в URL, который вернул MAX /uploads
-MAX_HTTP_RESPONSE TMaxIndyTransport::PostMultipartFile(const std::string & url,
-    const std::map<std::string,std::string> & headers,const std::string & fieldName,
-    const std::string & filename)
+MAX_HTTP_RESPONSE TMaxIndyTransport::PostMultipartFile(const MAX_TEXT & url,
+    const MAX_HTTP_HEADERS & headers,const MAX_TEXT & fieldName,const MAX_TEXT & filename)
 {
     MAX_HTTP_RESPONSE blocked;
     if(StartupFailed(blocked))return blocked;
 
     ApplyHeaders(headers);
-    TIdMultiPartFormDataStream * form=new TIdMultiPartFormDataStream;
+    TInMultipartFormDataStream * form=new TInMultipartFormDataStream;
     TMemoryStream * output=new TMemoryStream;
     AnsiString ex="";
-    try {
+    try
+    {
         //MAX ожидает бинарник в multipart поле "data"
-        form->AddFile(AnsiString(fieldName.c_str()),AnsiString(filename.c_str()),"application/octet-stream");
-        //URL используем ровно тот, который вернул MAX; host может отличаться от platform-api2.max.ru
-        Http->Post(AnsiString(url.c_str()),form,output);
+        form->AddFile(fieldName,filename,"application/octet-stream");
+        //URL используем ровно тот, который вернул MAX; host может отличаться.
+        Http->Post(url,form,output);
     }
-    catch(EIdException &E) { ex=E.Message; }
-    catch(...) { ex="Unknown Indy multipart exception"; }
+    catch(Exception & E)
+    {
+        ex=E.Message;
+    }
     MAX_HTTP_RESPONSE r=ReadResponse(output,ex);
     delete output;
     delete form;
