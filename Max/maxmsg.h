@@ -126,7 +126,7 @@ public:
 };
 //---------------------------------------------------------------------------
 //Преобразование входящего UTF-8 MAX в AnsiString/CP1251
-AnsiString MaxAnsiFromUtf8(const std::string & s);
+AnsiString MaxAnsiFromUtf8(const MAX_TEXT & s);
 //---------------------------------------------------------------------------
 //Это класс пользователей, используемых в программе
 class MaxUser : public TObject
@@ -194,7 +194,7 @@ public:
     void DeleteUser(int index);
     //Удалить всех пользователей
     void ClearList(void);
-    //Удалить пользователя
+    //Удалить пользователя по указателю
     void Remove(MaxUser * user);
     //Поиск пользователя по идентификатору Id
     MaxUser * Find(AnsiString id);

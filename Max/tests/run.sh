@@ -21,3 +21,6 @@ python3 tests/test_mirror.py
 # Поведенческий контракт VCL-кода: порядок callback/auth/gate, команды,
 # alias-логика, alarm fan-out, FIFO задач, PeerType и TLS trust.
 python3 tests/test_contract.py
+
+# Отдельный guard фактического toolchain заказчика: BCB2007, VCL и In* Indy.
+python3 tests/test_bcb2007.py

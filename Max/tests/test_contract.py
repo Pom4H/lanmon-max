@@ -2,8 +2,9 @@
 """Behavioral source contract for the VCL/C++Builder layer Linux cannot compile.
 
 The test protects the legacy Telegram behavior mirrored by MAX and a small set
-of MAX-specific security/state invariants.  It intentionally checks critical
-operation order, not formatting.
+of MAX-specific security/state invariants. It intentionally checks critical
+operation order, not formatting. BCB2007 compiler/VCL compatibility is guarded
+separately by test_bcb2007.py.
 """
 from pathlib import Path
 import sys
@@ -211,7 +212,7 @@ ordered(ctor, "MAX_BOT lifecycle", "new TMaxBotThread(true)", "Thread->Resume()"
 absent(ctor, "MAX_BOT lifecycle", "Thread->OnTaskReadMessages=", "Thread->OnPeriodicReadMessages=", "Thread->OnGetMe=")
 
 # ---------------------------------------------------------------------------
-# TLS is fail-closed and bound to the vendored CA path.
+# TLS is fail-closed and uses the exact In* Indy API present in BCB2007.
 require(
     indy,
     "Indy TLS",
@@ -219,11 +220,13 @@ require(
     "RootCertFile=rootCert",
     "sslvrfPeer",
     "VerifyDepth=9",
-    "sslvTLSv1_2",
+    "sslvSSLv23",
+    "TInSSLVerifyModeSet",
     'StartupError="MAX CA bundle not found: "+rootCert;',
 )
+absent(indy, "Indy TLS", "sslvTLSv1_2", "TIdSSLVerifyModeSet")
 startup_failed = function_body(indy, "bool TMaxIndyTransport::StartupFailed")
-require(startup_failed, "Indy TLS fail-closed", "StartupError", "response.StatusCode=0", "response.Error=StartupError.c_str()")
+require(startup_failed, "Indy TLS fail-closed", "StartupError", "response.StatusCode=0", "response.Error=StartupError")
 for signature in (
     "MAX_HTTP_RESPONSE TMaxIndyTransport::Get",
     "MAX_HTTP_RESPONSE TMaxIndyTransport::Post(",
@@ -241,7 +244,7 @@ else:
         errors.append("vendored MAX CA bundle must contain exactly two certificates")
 
 # Multipart upload host must not receive Bot API Authorization headers.
-require(client, "MAX multipart security", "std::map<std::string,std::string> uploadHeaders;", 'uploadUrl,uploadHeaders,"data",filename')
+require(client, "MAX multipart security", "MAX_HTTP_HEADERS uploadHeaders;", 'uploadUrl,uploadHeaders,"data",filename')
 multipart_step = between(client, "//3. Послать файл multipart/form-data", "//4. Получить token", "multipart step")
 absent(multipart_step, "MAX multipart security", "Headers(false)", "Headers(true)")
 
@@ -259,7 +262,7 @@ ordered(
     "attachment.not.ready retry",
     "const unsigned int retryDelayMs[]={500,1000,2000};",
     "const int maxAttempts=4;",
-    "std::string body=BuildAttachmentMessageBody",
+    "MAX_TEXT body=BuildAttachmentMessageBody",
     "for(int attempt=0;attempt<maxAttempts;attempt++)",
     "Transport->Post(",
     "if(CheckResponse(sent,error))return true;",

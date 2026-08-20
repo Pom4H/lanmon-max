@@ -18,14 +18,14 @@ static MAX_PEER MakeMaxPeer(AnsiString id,MAX_PEER_TYPE type)
     return MAX_PEER(type,(__int64)_atoi64(id.c_str()));
 }
 //---------------------------------------------------------------------------
-static std::string MaxUtf8(AnsiString s)
+static MAX_TEXT MaxUtf8(AnsiString s)
 {
-    return MaxUtf8FromCp1251(s.c_str());
+    return MaxUtf8FromCp1251(s);
 }
 //---------------------------------------------------------------------------
 static AnsiString U8(const char * s)
 {
-    return MaxAnsiFromUtf8(std::string(s));
+    return MaxAnsiFromUtf8(MAX_TEXT(s));
 }
 //---------------------------------------------------------------------------
 //Поток для работы с MAX
@@ -119,7 +119,7 @@ void __fastcall TMaxBotThread::Execute()
             FlagNewBotApi=false;
             //Задан новый FBotApi
             FBotApi=NewBotApi;
-            Api->SetToken(FBotApi.c_str());
+            Api->SetToken(FBotApi);
         }
         //Разрешить работу MAX
         if(!MaxBot.Active)
@@ -225,7 +225,7 @@ bool TMaxBotThread::DoReadMessages(bool bytask)
     //Очистить список принятых сообщений
     MsgList.Clear();
     ExeptionText="";
-    std::string error;
+    MAX_TEXT error;
     MAX_UPDATES updates;
     bool result=Api->Poll(updates,error,30,100);
     UpdateResponse();
@@ -289,7 +289,7 @@ bool TMaxBotThread::DoSendMessage(void)
 {
     AnsiString inf=" (Посылка: id="+Task.Id+" text="+Task.Text+")";
     ExeptionText="";
-    std::string error;
+    MAX_TEXT error;
     bool result=Api->SendMessage(MakeMaxPeer(Task.Id,Task.PeerType),MaxUtf8(Task.Text),error);
     UpdateResponse();
     if(!result)
@@ -308,7 +308,7 @@ void TMaxBotThread::DoGetMe(void)
 {
     BotInfo.Clear();
     ExeptionText="";
-    std::string error;
+    MAX_TEXT error;
     MAX_BOT_INFO info;
     bool result=Api->GetMe(info,error);
     UpdateResponse();
@@ -329,8 +329,8 @@ void TMaxBotThread::DoSendPhoto(void)
 {
     AnsiString inf=" (Посылка: id="+Task.Id+" fn="+Task.Text+")";
     ExeptionText="";
-    std::string error;
-    bool result=Api->SendImage(MakeMaxPeer(Task.Id,Task.PeerType),Task.Text.c_str(),MaxUtf8(Task.Caption),error);
+    MAX_TEXT error;
+    bool result=Api->SendImage(MakeMaxPeer(Task.Id,Task.PeerType),Task.Text,MaxUtf8(Task.Caption),error);
     UpdateResponse();
     if(!result)
     {
@@ -347,8 +347,8 @@ void TMaxBotThread::DoSendDoc(void)
 {
     AnsiString inf=" (Посылка: id="+Task.Id+" fn="+Task.Text+")";
     ExeptionText="";
-    std::string error;
-    bool result=Api->SendFile(MakeMaxPeer(Task.Id,Task.PeerType),Task.Text.c_str(),MaxUtf8(Task.Caption),error);
+    MAX_TEXT error;
+    bool result=Api->SendFile(MakeMaxPeer(Task.Id,Task.PeerType),Task.Text,MaxUtf8(Task.Caption),error);
     UpdateResponse();
     if(!result)
     {
@@ -564,7 +564,7 @@ void MAX_BOT::Save(AnsiString fn)
     TFastIniFile ini(fn,true);
     //Разрешить работу MAX
     ini.WriteBool(MaxSecSETUP,"Active",Active);
-    //Идентификатор разработчика MAX бота
+    //Идентификатор разработчика бота
     ini.WriteString(MaxSecSETUP,"BotApi",BotApi);
     //Период чтения сообщений с MAX сервера, с
     ini.WriteInteger(MaxSecSETUP,"PeriodReadMessages",PeriodReadMessages);

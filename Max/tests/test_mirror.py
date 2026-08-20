@@ -2,9 +2,9 @@
 """Structural mirror guard for the Telegram-shaped MAX source tree.
 
 This test prevents the repository from drifting back to a second application
-architecture.  It checks production structure and documentation density, while
-`test_contract.py` protects behavioral order/semantics.  Comments in tests are
-not matched word-for-word: rewriting a clearer comment must not break CI.
+architecture. It checks production structure and documentation density, while
+`test_contract.py` protects behavioral order/semantics and `test_bcb2007.py`
+protects the actual legacy compiler/VCL compatibility contract.
 """
 from pathlib import Path
 import sys
@@ -133,7 +133,7 @@ need("UFMaxMsg.cpp", "TFormMaxMsg")
 # MAX-specific protocol layer is allowed only below api/ and must explain why it exists.
 need(
     "api/maxcore.h",
-    "MAX_PEER_TYPE", "MAX_UPDATES", "MaxUtf8FromCp1251",
+    "MAX_PEER_TYPE", "MAX_UPDATES", "MaxUtf8FromCp1251", "MAX_TEXT",
     "//Тип адресата MAX: личный пользователь или чат",
 )
 need(
@@ -143,7 +143,7 @@ need(
 )
 need(
     "api/maxclient.h",
-    "class IMaxHttpTransport", "class MAX_API_CLIENT", "SleepMilliseconds",
+    "class IMaxHttpTransport", "class MAX_API_CLIENT", "SleepMilliseconds", "MAX_HTTP_HEADERS",
     "//Клиент MAX Bot API, независимый от конкретной HTTP-библиотеки",
 )
 need(
@@ -154,12 +154,13 @@ need(
 need(
     "api/maxindy.h",
     "class TMaxIndyTransport", "StartupError", "StartupFailed",
+    "TInHTTP", "TInSSLIOHandlerSocketOpenSSL",
     "//Production HTTP/HTTPS transport MAX для старого C++Builder/Indy",
 )
 need(
     "api/maxindy.cpp",
-    '"certs\\\\max-ca.pem"', "RootCertFile", "sslvrfPeer", "sslvTLSv1_2",
-    "MAX CA bundle not found", "SleepMilliseconds",
+    '"certs\\\\max-ca.pem"', "RootCertFile", "sslvrfPeer", "sslvSSLv23",
+    "TInMultipartFormDataStream", "MAX CA bundle not found", "SleepMilliseconds",
 )
 
 # Vendored CA is now part of the deliverable rather than an undocumented external file.
@@ -178,12 +179,13 @@ if not (root / "certs" / "README.md").is_file():
 need("tests/test_maxcore.cpp", "// Unit tests protocol-level MAX functions", "MaxParseUpdates", "surrogate")
 need("tests/test_maxclient.cpp", "// Unit tests MAX_API_CLIENT behavior", "attachment.not.ready", "SleepMilliseconds")
 need("tests/test_contract.py", "Behavioral source contract", "attachment.not.ready", "fail-closed")
+need("tests/test_bcb2007.py", "C++Builder 2007", "In* Indy", "no STL")
 need("tests/test_cert.sh", "MAX Ministry CA bundle verified", "ROOT_SHA256", "SUB_SHA256")
 need("e2e/e2e_harness.cpp", "// End-to-end test of MAX_API_CLIENT", "Retry E2E")
 need("e2e/mock_max_server.py", "Local HTTP model of the MAX endpoints", "attachment.not.ready", "unexpected_reupload")
 need("e2e/posix_http_transport.h", "TPosixHttpTransport")
 need("e2e/posix_http_transport.cpp", "TPosixHttpTransport::Request")
-need("tests/run.sh", "test_cert.sh", "test_contract.py")
+need("tests/run.sh", "test_cert.sh", "test_contract.py", "test_bcb2007.py")
 need("e2e/run_e2e.sh", "e2e_harness.cpp", "mock_max_server.py")
 
 # Documentation density guards against stripping the original explanatory style.
