@@ -128,8 +128,9 @@ public:
 //Преобразование входящего UTF-8 MAX в AnsiString/CP1251
 AnsiString MaxAnsiFromUtf8(const MAX_TEXT & s);
 //---------------------------------------------------------------------------
-//Это класс пользователей, используемых в программе
-class MaxUser : public TObject
+//Это класс пользователей, используемых в программе.
+//Обычный C++ класс: экземпляры используются и через new, и как локальные копии на стеке.
+class MaxUser
 {
     bool GetValid(void){return (bool)FId.Length();}
 private:
@@ -159,7 +160,6 @@ public:
     void CopyChatFrom(MaxMessage * msg);
     //Проверка, что пользователь соответствует маске псевдонима
     bool HasValidAlias(AnsiString alias);
-__published:
     //Уникальный идентификатор пользователя или чата
     __property AnsiString Id = { read=FId, write=FId };
     //Имя пользователя или чата
