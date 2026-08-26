@@ -85,6 +85,11 @@ for signature in ("void TMaxBotThread::DoSendPhoto", "void TMaxBotThread::DoSend
     body = function_body(bot_cpp, signature, signature)
     absent(body, signature, "return false;", "return true;")
 
+# MaxUser is a value object. The editor uses local copies, so it must remain
+# stack-allocatable in BCB2007 rather than inheriting from TObject.
+require(msg_h, "MaxUser value semantics", "class MaxUser\n{")
+absent(msg_h, "MaxUser value semantics", "class MaxUser : public TObject", "__published:")
+
 # LanMon BCB2007 installation uses the same Id* Indy headers/classes as tgbot.cpp.
 require(
     indy_h,
