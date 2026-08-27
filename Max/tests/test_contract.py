@@ -212,7 +212,7 @@ ordered(ctor, "MAX_BOT lifecycle", "new TMaxBotThread(true)", "Thread->Resume()"
 absent(ctor, "MAX_BOT lifecycle", "Thread->OnTaskReadMessages=", "Thread->OnPeriodicReadMessages=", "Thread->OnGetMe=")
 
 # ---------------------------------------------------------------------------
-# TLS is fail-closed and uses the actual Id* Indy API from the customer's BCB2007.
+# TLS is fail-closed and uses the exact In* Indy API present in BCB2007.
 require(
     indy,
     "Indy TLS",
@@ -220,11 +220,11 @@ require(
     "RootCertFile=rootCert",
     "sslvrfPeer",
     "VerifyDepth=9",
-    "sslvTLSv1_2",
-    "TIdSSLVerifyModeSet",
+    "sslvSSLv23",
+    "TInSSLVerifyModeSet",
     'StartupError="MAX CA bundle not found: "+rootCert;',
 )
-absent(indy, "Indy TLS", "sslvSSLv23", "TInSSLVerifyModeSet")
+absent(indy, "Indy TLS", "sslvTLSv1_2", "TIdSSLVerifyModeSet")
 startup_failed = function_body(indy, "bool TMaxIndyTransport::StartupFailed")
 require(startup_failed, "Indy TLS fail-closed", "StartupError", "response.StatusCode=0", "response.Error=StartupError")
 for signature in (
@@ -248,7 +248,7 @@ require(client, "MAX multipart security", "MAX_HTTP_HEADERS uploadHeaders;", 'up
 multipart_step = between(client, "//3. Послать файл multipart/form-data", "//4. Получить token", "multipart step")
 absent(multipart_step, "MAX multipart security", "Headers(false)", "Headers(true)")
 
-# attachment.not.ready: only final POST /messages is retried with the same body/payload.
+# attachment.not.ready: only final POST /messages is retried with the same body/token.
 upload_flow = function_body(client, "bool MAX_API_CLIENT::SendUploadedAttachment")
 retry_start = upload_flow.find("const unsigned int retryDelayMs[]={500,1000,2000};")
 if retry_start < 0:
