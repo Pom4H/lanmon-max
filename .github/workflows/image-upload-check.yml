@@ -6,7 +6,7 @@ on:
       - fix/max-image-upload-photos
 
 jobs:
-  test-image-upload:
+  core:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -16,11 +16,23 @@ jobs:
           cd Max
           g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_maxcore.cpp -o tests/test_maxcore
           ./tests/test_maxcore
+
+  existing-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
       - name: Existing client tests
         run: |
           cd Max
           g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_maxclient.cpp -o tests/test_maxclient
           ./tests/test_maxclient
+
+  image-photos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
       - name: Live photos payload regression
         run: |
           cd Max
