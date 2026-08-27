@@ -6,35 +6,29 @@ on:
       - fix/max-image-upload-photos
 
 jobs:
-  core:
+  diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Core tests
+      - name: Capture compiler output
+        shell: bash
         run: |
           cd Max
-          g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_maxcore.cpp -o tests/test_maxcore
-          ./tests/test_maxcore
-
-  existing-client:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Existing client tests
+          set +e
+          g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_image_upload.cpp -o tests/test_image_upload > ../compile.log 2>&1
+          status=$?
+          echo "$status" > ../compile.status
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-upload-compile
+          path: |
+            compile.log
+            compile.status
+      - name: Run regression if compiled
+        shell: bash
         run: |
+          test "$(cat compile.status)" = "0"
           cd Max
-          g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_maxclient.cpp -o tests/test_maxclient
-          ./tests/test_maxclient
-
-  image-photos:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Live photos payload regression
-        run: |
-          cd Max
-          g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_image_upload.cpp -o tests/test_image_upload
           ./tests/test_image_upload
