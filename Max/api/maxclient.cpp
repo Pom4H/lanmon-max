@@ -43,13 +43,36 @@ static MAX_TEXT ClientTextSubstr(const MAX_TEXT & value,int start)
 #endif
 }
 
+static MAX_TEXT ClientTextSlice(const MAX_TEXT & value,int start,int count)
+{
+    if(start<0 || count<=0 || start>=ClientTextLength(value))return MAX_TEXT("");
+    if(start+count>ClientTextLength(value))count=ClientTextLength(value)-start;
+#ifdef __BORLANDC__
+    return value.SubString(start+1,count);
+#else
+    return value.substr((size_t)start,(size_t)count);
+#endif
+}
+
+static int ClientTextFindFrom(const MAX_TEXT & value,const char * needle,int start)
+{
+    int n=ClientTextLength(value);
+    int m=0;while(needle[m])++m;
+    if(m==0)return start<=n?start:-1;
+    if(start<0)start=0;
+    const char * p=value.c_str();
+    for(int i=start;i+m<=n;++i)
+    {
+        int j=0;
+        while(j<m && p[i+j]==needle[j])++j;
+        if(j==m)return i;
+    }
+    return -1;
+}
+
 static bool ClientTextContains(const MAX_TEXT & value,const char * needle)
 {
-#ifdef __BORLANDC__
-    return value.Pos(needle)>0;
-#else
-    return value.find(needle)!=MAX_TEXT::npos;
-#endif
+    return ClientTextFindFrom(value,needle,0)>=0;
 }
 
 static void ClientTextRemoveLast(MAX_TEXT & value)
@@ -90,12 +113,87 @@ static void HeaderSet(MAX_HTTP_HEADERS & headers,const MAX_TEXT & name,const MAX
 #endif
 }
 
-//Сформировать JSON сообщения с attachment token, полученным после upload
-static MAX_TEXT BuildAttachmentMessageBody(const MAX_TEXT & text,const MAX_TEXT & type,const MAX_TEXT & token)
+//Сформировать JSON сообщения с уже готовым attachment payload.
+//Для image MAX в production может вернуть payload.photos вместо payload.token.
+static MAX_TEXT BuildAttachmentMessageBody(const MAX_TEXT & text,const MAX_TEXT & type,const MAX_TEXT & payloadJson)
 {
     return MAX_TEXT("{\"text\":\"")+MaxJsonEscape(text)+
         "\",\"attachments\":[{\"type\":\""+MaxJsonEscape(type)+
-        "\",\"payload\":{\"token\":\""+MaxJsonEscape(token)+"\"}}]}";
+        "\",\"payload\":"+payloadJson+"}]}";
+}
+
+//Живой MAX image upload может отвечать двумя форматами:
+//  {"token":"..."}                          - документированный старый формат
+//  {"photos":{"<id>":{"token":"..."}}} - фактический формат iu.oneme.ru
+//Во втором случае photos нужно передать в attachments.payload без преобразования.
+static bool BuildImageUploadPayload(const MAX_TEXT & json,MAX_TEXT & payloadJson,MAX_TEXT & error)
+{
+    MAX_TEXT token;
+    MAX_TEXT ignoredError;
+    if(MaxParseUploadToken(json,token,ignoredError))
+    {
+        payloadJson=MAX_TEXT("{\"token\":\"")+MaxJsonEscape(token)+"\"}";
+        ClientTextClear(error);
+        return true;
+    }
+
+    const char * text=json.c_str();
+    const int n=ClientTextLength(json);
+    int keyPos=ClientTextFindFrom(json,"\"photos\"",0);
+    while(keyPos>=0)
+    {
+        int p=keyPos+8;
+        while(p<n && (text[p]==' ' || text[p]=='\t' || text[p]=='\r' || text[p]=='\n'))++p;
+        if(p<n && text[p]==':')
+        {
+            ++p;
+            while(p<n && (text[p]==' ' || text[p]=='\t' || text[p]=='\r' || text[p]=='\n'))++p;
+            if(p<n && text[p]=='{')
+            {
+                const int objectStart=p;
+                int depth=0;
+                bool inString=false;
+                bool escaped=false;
+                for(;p<n;++p)
+                {
+                    const char c=text[p];
+                    if(inString)
+                    {
+                        if(escaped)escaped=false;
+                        else if(c=='\\')escaped=true;
+                        else if(c=='\"')inString=false;
+                    }
+                    else
+                    {
+                        if(c=='\"')inString=true;
+                        else if(c=='{')++depth;
+                        else if(c=='}')
+                        {
+                            --depth;
+                            if(depth==0)
+                            {
+                                MAX_TEXT photos=ClientTextSlice(json,objectStart,p-objectStart+1);
+                                if(!ClientTextContains(photos,"\"token\""))
+                                {
+                                    error="Image upload photos payload has no token";
+                                    return false;
+                                }
+                                payloadJson=MAX_TEXT("{\"photos\":")+photos+"}";
+                                ClientTextClear(error);
+                                return true;
+                            }
+                        }
+                    }
+                }
+                error="Image upload response has malformed photos object";
+                return false;
+            }
+        }
+        keyPos=ClientTextFindFrom(json,"\"photos\"",keyPos+1);
+    }
+
+    error="Image upload response has no token or photos";
+    return false;
 }
 
 //MAX может временно вернуть attachment.not.ready сразу после upload
@@ -229,7 +327,7 @@ bool MAX_API_CLIENT::SendUploadedAttachment(const MAX_PEER & peer,const MAX_TEXT
         return false;
     }
 
-    //1. Запросить у MAX URL для загрузки файла
+    //1. Запросить у MAX URL для загрузки файла. Bot token обязателен здесь.
     MAX_HTTP_RESPONSE prepare=Transport->Post(
         WithBaseUrl(MAX_TEXT("https://platform-api2.max.ru/uploads?type=")+uploadType),Headers(false),"");
     if(!CheckResponse(prepare,error))return false;
@@ -243,14 +341,24 @@ bool MAX_API_CLIENT::SendUploadedAttachment(const MAX_PEER & peer,const MAX_TEXT
     MAX_HTTP_RESPONSE uploaded=Transport->PostMultipartFile(uploadUrl,uploadHeaders,"data",filename);
     if(!CheckResponse(uploaded,error))return false;
 
-    //4. Получить token загруженного файла
-    MAX_TEXT token;
-    if(!MaxParseUploadToken(uploaded.Body,token,error))return false;
+    //4. Получить token/attachment payload из ответа upload-host.
+    //Для image live MAX может вернуть photos map вместо верхнеуровневого token.
+    MAX_TEXT payloadJson;
+    if(attachmentType=="image")
+    {
+        if(!BuildImageUploadPayload(uploaded.Body,payloadJson,error))return false;
+    }
+    else
+    {
+        MAX_TEXT token;
+        if(!MaxParseUploadToken(uploaded.Body,token,error))return false;
+        payloadJson=MAX_TEXT("{\"token\":\"")+MaxJsonEscape(token)+"\"}";
+    }
 
-    //5. Отправить сообщение с attachment.payload.token.
+    //5. Отправить сообщение с attachment.payload.
     const unsigned int retryDelayMs[]={500,1000,2000};
     const int maxAttempts=4;
-    MAX_TEXT body=BuildAttachmentMessageBody(utf8Caption,attachmentType,token);
+    MAX_TEXT body=BuildAttachmentMessageBody(utf8Caption,attachmentType,payloadJson);
     for(int attempt=0;attempt<maxAttempts;attempt++)
     {
         MAX_HTTP_RESPONSE sent=Transport->Post(WithBaseUrl(MaxBuildSendMessageUrl(peer)),Headers(true),body);
