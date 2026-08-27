@@ -1,0 +1,28 @@
+name: Image upload regression
+
+on:
+  push:
+    branches:
+      - fix/max-image-upload-photos
+
+jobs:
+  test-image-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core tests
+        run: |
+          cd Max
+          g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_maxcore.cpp -o tests/test_maxcore
+          ./tests/test_maxcore
+      - name: Existing client tests
+        run: |
+          cd Max
+          g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_maxclient.cpp -o tests/test_maxclient
+          ./tests/test_maxclient
+      - name: Live photos payload regression
+        run: |
+          cd Max
+          g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_image_upload.cpp -o tests/test_image_upload
+          ./tests/test_image_upload
