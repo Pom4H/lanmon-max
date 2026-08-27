@@ -10,6 +10,26 @@ permissions:
   statuses: write
 
 jobs:
+  image-upload:
+    name: MAX image upload contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image upload regression (C++98)
+        working-directory: Max
+        run: |
+          g++ -std=gnu++98 -Wall -Wextra -Werror \
+            api/maxcore.cpp \
+            api/maxclient.cpp \
+            tests/test_image_upload.cpp \
+            -o tests/test_image_upload
+
+      - name: Verify complete image upload flow
+        working-directory: Max
+        run: ./tests/test_image_upload
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
