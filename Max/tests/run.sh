@@ -15,6 +15,10 @@ g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/t
 g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_maxclient.cpp -o tests/test_maxclient
 ./tests/test_maxclient
 
+# Регрессия live MAX: image upload может вернуть photos map вместо top-level token.
+g++ -std=gnu++98 -Wall -Wextra -Werror api/maxcore.cpp api/maxclient.cpp tests/test_image_upload.cpp -o tests/test_image_upload
+./tests/test_image_upload
+
 # Структурная проверка зеркала Telegram и обязательных комментариев.
 python3 tests/test_mirror.py
 
