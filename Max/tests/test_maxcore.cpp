@@ -8,15 +8,17 @@ static int fails=0;
 
 int main()
 {
+    const char * updateTypes="&types=message_created,bot_added,user_added";
+
     // URL GET /updates: defaults, marker and both API range boundaries.
     CHECK(MaxBuildUpdatesUrl(false,0,30,100)==
-        "https://platform-api2.max.ru/updates?timeout=30&limit=100&types=message_created");
+        std::string("https://platform-api2.max.ru/updates?timeout=30&limit=100")+updateTypes);
     CHECK(MaxBuildUpdatesUrl(true,922337203685477000LL,120,5000)==
-        "https://platform-api2.max.ru/updates?timeout=90&limit=1000&marker=922337203685477000&types=message_created");
+        std::string("https://platform-api2.max.ru/updates?timeout=90&limit=1000&marker=922337203685477000")+updateTypes);
     CHECK(MaxBuildUpdatesUrl(false,0,-10,0)==
-        "https://platform-api2.max.ru/updates?timeout=0&limit=1&types=message_created");
+        std::string("https://platform-api2.max.ru/updates?timeout=0&limit=1")+updateTypes);
     CHECK(MaxBuildUpdatesUrl(false,0,90,1000)==
-        "https://platform-api2.max.ru/updates?timeout=90&limit=1000&types=message_created");
+        std::string("https://platform-api2.max.ru/updates?timeout=90&limit=1000")+updateTypes);
 
     // MAX has two address spaces: personal user_id and signed chat_id.
     CHECK(MaxBuildSendMessageUrl(MAX_PEER(maxPeerUser,123))==
@@ -66,21 +68,26 @@ int main()
     CHECK(err.find("user_id")!=std::string::npos);
     CHECK(!MaxParseBotInfo("[]",bi,err));
 
-    // /updates: keep only message_created, preserve 64-bit marker and message fields.
+    // /updates: message + Telegram invitation/new-participant equivalents.
     const char * updatesJson=
         "{\"updates\":["
         "{\"update_type\":\"message_created\",\"timestamp\":1720000000123,\"message\":{"
         "\"sender\":{\"user_id\":100,\"first_name\":\"Ivan\",\"last_name\":\"Petrov\",\"username\":\"ivan\",\"is_bot\":false},"
         "\"recipient\":{\"chat_id\":-555,\"chat_type\":\"chat\",\"user_id\":200},"
         "\"timestamp\":1720000000000,\"body\":{\"mid\":\"mid1\",\"seq\":1,\"text\":\"hello \\\"MAX\\\"\\nline2\"}}},"
-        "{\"update_type\":\"bot_started\",\"timestamp\":1720000000999,\"user\":{\"user_id\":101}}"
+        "{\"update_type\":\"bot_added\",\"timestamp\":1720000001000,\"chat_id\":-777,"
+        "\"user\":{\"user_id\":201,\"first_name\":\"Admin\",\"is_bot\":false},\"is_channel\":false},"
+        "{\"update_type\":\"user_added\",\"timestamp\":1720000002000,\"chat_id\":-777,"
+        "\"user\":{\"user_id\":202,\"first_name\":\"New\",\"last_name\":\"User\",\"is_bot\":false},\"is_channel\":false},"
+        "{\"update_type\":\"bot_started\",\"timestamp\":1720000003000,\"user\":{\"user_id\":101}}"
         "],\"marker\":9876543210123}";
     MAX_UPDATES up;
     CHECK(MaxParseUpdates(updatesJson,up,err));
     CHECK(up.HasMarker && up.Marker==9876543210123LL);
-    CHECK(up.Messages.size()==1);
-    if(up.Messages.size()==1)
+    CHECK(up.Messages.size()==3);
+    if(up.Messages.size()==3)
     {
+        CHECK(up.Messages[0].UpdateType=="message_created");
         CHECK(up.Messages[0].UserId==100);
         CHECK(up.Messages[0].ChatId==-555);
         CHECK(up.Messages[0].ChatType=="chat");
@@ -89,7 +96,27 @@ int main()
         CHECK(up.Messages[0].FirstName=="Ivan");
         CHECK(up.Messages[0].LastName=="Petrov");
         CHECK(!up.Messages[0].SenderIsBot);
+
+        CHECK(up.Messages[1].UpdateType=="bot_added");
+        CHECK(up.Messages[1].ChatId==-777);
+        CHECK(up.Messages[1].ChatType=="chat");
+        CHECK(up.Messages[1].UserId==201);
+        CHECK(up.Messages[1].FirstName=="Admin");
+        CHECK(up.Messages[1].MessageTimestamp==1720000001000LL);
+
+        CHECK(up.Messages[2].UpdateType=="user_added");
+        CHECK(up.Messages[2].ChatId==-777);
+        CHECK(up.Messages[2].UserId==202);
+        CHECK(up.Messages[2].FirstName=="New");
+        CHECK(up.Messages[2].LastName=="User");
     }
+
+    // Channel membership preserves channel addressing.
+    CHECK(MaxParseUpdates(
+        "{\"updates\":[{\"update_type\":\"bot_added\",\"timestamp\":1,\"chat_id\":-9,"
+        "\"user\":{\"user_id\":1},\"is_channel\":true}],\"marker\":2}",up,err));
+    CHECK(up.Messages.size()==1);
+    CHECK(up.Messages[0].ChatType=="channel");
 
     // Empty update page without marker is valid and keeps HasMarker=false.
     CHECK(MaxParseUpdates("{\"updates\":[]}",up,err));
@@ -106,6 +133,12 @@ int main()
         up,err));
     CHECK(up.Messages.empty());
     CHECK(up.HasMarker && up.Marker==2);
+
+    // Membership event without chat_id is unusable and ignored safely.
+    CHECK(MaxParseUpdates(
+        "{\"updates\":[{\"update_type\":\"bot_added\",\"timestamp\":1,\"user\":{\"user_id\":1}}],\"marker\":2}",
+        up,err));
+    CHECK(up.Messages.empty());
 
     // A message_created event with no message object is ignored safely.
     CHECK(MaxParseUpdates(
