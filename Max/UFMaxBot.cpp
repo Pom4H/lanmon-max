@@ -98,7 +98,7 @@ void TFormMaxBot::FillUsers(void)
     ListViewUsers->Items->EndUpdate();
 }
 //---------------------------------------------------------------------------
-//Показать сообщения
+//Показать сообщения и membership events так же, как Telegram diagnostics.
 void TFormMaxBot::ShowMsgList(void)
 {
     ListViewMsg->Items->BeginUpdate();
@@ -109,14 +109,18 @@ void TFormMaxBot::ShowMsgList(void)
         TListItem *li=ListViewMsg->Items->Add();
         //0 - номер ПП
         li->Caption=IntToStr(i+1);
-        //1 Время
+        //1 Тип
+        li->SubItems->Add(msg->TypeText);
+        //2 Время
         li->SubItems->Add(msg->DateText);
-        //2 Текст
+        //3 Текст
         li->SubItems->Add(msg->Text);
-        //3 От кого
+        //4 От кого/чат
         li->SubItems->Add(msg->Chat.FullName);
-        //4 Идентификатор
+        //5 Идентификатор
         li->SubItems->Add(msg->Chat.Id);
+        //6 Приглашение/новый участник
+        li->SubItems->Add(msg->ParticipantText);
     }
     ListViewMsg->Items->EndUpdate();
 }
@@ -186,6 +190,31 @@ void __fastcall TFormMaxBot::ButtonEditBotApiClick(TObject *Sender)
 void __fastcall TFormMaxBot::ButtonReadMessagesClick(TObject *Sender)
 {
     MaxBot.ReadMessages();
+}
+//---------------------------------------------------------------------------
+//Добавить адресат из выбранного входящего события — Telegram pmAddUser parity.
+void __fastcall TFormMaxBot::ButtonAddUserClick(TObject *Sender)
+{
+    if(!ListViewMsg->Selected)return;
+    int index=ListViewMsg->Selected->Index;
+    MaxMessage *msg=MsgList[index];
+    if(!msg || !msg->Chat.Valid)return;
+
+    //В личном dialog адресуем пользователя через user_id; в группах/каналах — chat_id.
+    bool direct=(msg->Type==mmtMESSAGE && msg->Chat.type.LowerCase()=="dialog" && msg->From.Valid);
+    AnsiString id=direct?msg->From.Id:msg->Chat.Id;
+    if(id.IsEmpty() || MaxBot.UserList->Find(id))return;
+
+    //Как и Telegram UI, новый участник сам по себе не создаёт новый адресат.
+    if(msg->Type==mmtNEWPATICIPANT)return;
+
+    MaxUser *user=MaxBot.UserList->AddUser();
+    if(direct)user->CopyUserFrom(msg);
+    else user->CopyChatFrom(msg);
+    user->Alias=MaxBot.UserList->GetFreeAlias();
+    if(msg->Type==mmtINVITATION)
+        user->Comment=MaxAnsiFromUtf8("Добавлен по событию bot_added");
+    FillUsers();
 }
 //---------------------------------------------------------------------------
 //Изменить пользователя
