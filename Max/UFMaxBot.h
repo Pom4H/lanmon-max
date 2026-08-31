@@ -39,6 +39,7 @@ __published:
     TCheckBox *CheckBoxUseLanmonLog;
     TButton *ButtonEditBotApi;
     TButton *ButtonReadMessages;
+    TButton *ButtonAddUser;
     TButton *ButtonEditUser;
     TButton *ButtonDeleteUser;
     TListView *ListViewUsers;
@@ -52,6 +53,7 @@ __published:
     void __fastcall FormClose(TObject *Sender, TCloseAction &Action);
     void __fastcall ButtonEditBotApiClick(TObject *Sender);
     void __fastcall ButtonReadMessagesClick(TObject *Sender);
+    void __fastcall ButtonAddUserClick(TObject *Sender);
     void __fastcall ButtonEditUserClick(TObject *Sender);
     void __fastcall ButtonDeleteUserClick(TObject *Sender);
     void __fastcall CheckBoxActiveClick(TObject *Sender);
