@@ -81,6 +81,17 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::ReadResponse(TMemoryStream * stream,const A
     return r;
 }
 
+// Indy превращает HTTP 4xx/5xx в EIdHTTPProtocolException. Для MAX это не
+// transport error: тело JSON содержит машинный code, например attachment.not.ready.
+// Сохраняем ErrorCode/ErrorMessage как обычный HTTP response, чтобы клиент мог
+// принять решение о retry по коду MAX, а не повторять любую ошибку подряд.
+static void ApplyHttpProtocolError(MAX_HTTP_RESPONSE & response,int status,const AnsiString & body)
+{
+    if(status>0)response.StatusCode=status;
+    if(body.Length())response.Body=body;
+    response.Error="";
+}
+
 MAX_HTTP_RESPONSE TMaxIndyTransport::Get(const MAX_TEXT & url,const MAX_HTTP_HEADERS & headers)
 {
     MAX_HTTP_RESPONSE blocked;
@@ -89,15 +100,23 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::Get(const MAX_TEXT & url,const MAX_HTTP_HEA
     ApplyHeaders(headers);
     TMemoryStream * stream=new TMemoryStream;
     AnsiString ex="";
+    int protocolStatus=0;
+    AnsiString protocolBody="";
     try
     {
         Http->Get(url,stream);
+    }
+    catch(EIdHTTPProtocolException & E)
+    {
+        protocolStatus=E.ErrorCode;
+        protocolBody=E.ErrorMessage;
     }
     catch(Exception & E)
     {
         ex=E.Message;
     }
     MAX_HTTP_RESPONSE r=ReadResponse(stream,ex);
+    if(protocolStatus)ApplyHttpProtocolError(r,protocolStatus,protocolBody);
     delete stream;
     Http->Disconnect();
     return r;
@@ -112,15 +131,23 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::Post(const MAX_TEXT & url,const MAX_HTTP_HE
     TStringStream * input=new TStringStream(body);
     TMemoryStream * output=new TMemoryStream;
     AnsiString ex="";
+    int protocolStatus=0;
+    AnsiString protocolBody="";
     try
     {
         Http->Post(url,input,output);
+    }
+    catch(EIdHTTPProtocolException & E)
+    {
+        protocolStatus=E.ErrorCode;
+        protocolBody=E.ErrorMessage;
     }
     catch(Exception & E)
     {
         ex=E.Message;
     }
     MAX_HTTP_RESPONSE r=ReadResponse(output,ex);
+    if(protocolStatus)ApplyHttpProtocolError(r,protocolStatus,protocolBody);
     delete output;
     delete input;
     Http->Disconnect();
@@ -137,16 +164,24 @@ MAX_HTTP_RESPONSE TMaxIndyTransport::PostMultipartFile(const MAX_TEXT & url,
     TIdMultiPartFormDataStream * form=new TIdMultiPartFormDataStream;
     TMemoryStream * output=new TMemoryStream;
     AnsiString ex="";
+    int protocolStatus=0;
+    AnsiString protocolBody="";
     try
     {
         form->AddFile(fieldName,filename,"application/octet-stream");
         Http->Post(url,form,output);
+    }
+    catch(EIdHTTPProtocolException & E)
+    {
+        protocolStatus=E.ErrorCode;
+        protocolBody=E.ErrorMessage;
     }
     catch(Exception & E)
     {
         ex=E.Message;
     }
     MAX_HTTP_RESPONSE r=ReadResponse(output,ex);
+    if(protocolStatus)ApplyHttpProtocolError(r,protocolStatus,protocolBody);
     delete output;
     delete form;
     Http->Disconnect();
