@@ -101,7 +101,7 @@ AnsiString MaxMessage::GetDateText(void)
     if(!tmv)return "";
     AnsiString s;
     s.sprintf("%02d/%02d/%04d %02d:%02d:%02d",
-        tmv->tm_mday,tmv->tm_mon+1,tmv->tm_year+1900,
+        tmv->tm_mday,tmv->tm_mon+1,tmv->tm_mday?tmv->tm_year+1900:0,
         tmv->tm_hour,tmv->tm_min,tmv->tm_sec);
     return s;
 }
@@ -155,27 +155,58 @@ void MaxMessage::CopyFrom(MaxMessage * msg)
     Text=msg->Text;
 }
 //---------------------------------------------------------------------------
-//Получение сообщения из нормализованного ответа MAX API
+//Получение сообщения/события из нормализованного ответа MAX API
 void MaxMessage::CopyFrom(const MAX_MESSAGE & msg)
 {
-    Type=mmtMESSAGE;
+    //Telegram различал message, приглашение бота и нового участника.
+    //MAX даёт прямые аналоги bot_added/user_added.
+    if(msg.UpdateType=="bot_added")Type=mmtINVITATION;
+    else if(msg.UpdateType=="user_added")Type=mmtNEWPATICIPANT;
+    else Type=mmtMESSAGE;
+
     update_id=(__int64)msg.UpdateTimestamp;
     message_id=msg.MessageId.c_str();
-    //Объект from
     From.Clear();
-    From.Id=MaxInt64ToString(msg.UserId).c_str();
-    From.is_bot=msg.SenderIsBot;
-    From.first_name=MaxAnsiFromUtf8(msg.FirstName);
-    From.last_name=MaxAnsiFromUtf8(msg.LastName);
+    Participant.Clear();
+
+    if(Type==mmtNEWPATICIPANT)
+    {
+        //В user_added объект user и есть новый участник.
+        if(msg.UserId)Participant.Id=MaxInt64ToString(msg.UserId).c_str();
+        Participant.is_bot=msg.SenderIsBot;
+        Participant.first_name=MaxAnsiFromUtf8(msg.FirstName);
+        Participant.last_name=MaxAnsiFromUtf8(msg.LastName);
+    }
+    else
+    {
+        //Для message_created это отправитель, для bot_added — пользователь,
+        //который добавил нашего бота в чат/канал.
+        if(msg.UserId)From.Id=MaxInt64ToString(msg.UserId).c_str();
+        From.is_bot=msg.SenderIsBot;
+        From.first_name=MaxAnsiFromUtf8(msg.FirstName);
+        From.last_name=MaxAnsiFromUtf8(msg.LastName);
+    }
+
     //Объект chat
     Chat.Clear();
-    Chat.Id=MaxInt64ToString(msg.ChatId).c_str();
+    if(msg.ChatId)Chat.Id=MaxInt64ToString(msg.ChatId).c_str();
     Chat.type=msg.ChatType.c_str();
-    Chat.first_name=From.first_name;
-    Chat.last_name=From.last_name;
-    Chat.username=MaxAnsiFromUtf8(msg.UserName);
-    //Дата и текст сообщения
-    Date=(long)(msg.MessageTimestamp/1000);
+    if(Type==mmtMESSAGE)
+    {
+        Chat.first_name=From.first_name;
+        Chat.last_name=From.last_name;
+        Chat.username=MaxAnsiFromUtf8(msg.UserName);
+    }
+    else
+    {
+        //bot_added/user_added не содержат название чата в Update.
+        //Оставляем понятное имя до ручного редактирования пользователем LanMon.
+        Chat.first_name=(Chat.type=="channel")?"MAX channel":"MAX chat";
+    }
+
+    //У membership events нет отдельного timestamp сообщения — используем update timestamp.
+    max_int64 timestamp=msg.MessageTimestamp?msg.MessageTimestamp:msg.UpdateTimestamp;
+    Date=(long)(timestamp/1000);
     Text=MaxAnsiFromUtf8(msg.Text);
 }
 //---------------------------------------------------------------------------
@@ -386,7 +417,7 @@ void MaxUser_LIST::DeleteUser(int index)
     MaxUser * user=Get(index);
     if(user)
     {
-        //Удалить объект пользователя
+        //Удалить объект сообщения
         delete user;
         //Удалить указатель в списке
         TList::Delete(index);
