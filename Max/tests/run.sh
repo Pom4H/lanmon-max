@@ -26,5 +26,8 @@ python3 tests/test_mirror.py
 # alias-логика, alarm fan-out, FIFO задач, PeerType и TLS trust.
 python3 tests/test_contract.py
 
-# Отдельный guard фактического toolchain заказчика: BCB2007, VCL и In* Indy.
+# Guard фактического toolchain заказчика: BCB2007 + обновлённый Indy Id*.
 python3 tests/test_bcb2007.py
+
+# Indy бросает exception на HTTP 400; тело MAX должно сохраняться для retry.
+python3 tests/test_indy_protocol_error.py
