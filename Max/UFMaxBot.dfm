@@ -125,14 +125,21 @@ object FormMaxBot: TFormMaxBot
         Caption = #1055#1088#1086#1095#1080#1090#1072#1090#1100' '#1089#1086#1086#1073#1097#1077#1085#1080#1103
         OnClick = ButtonReadMessagesClick
       end
+      object ButtonAddUser: TButton
+        Left = 16 Top = 304 Width = 180 Height = 25
+        Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1072#1076#1088#1077#1089#1072#1090
+        OnClick = ButtonAddUserClick
+      end
       object ListViewMsg: TListView
-        Left = 328 Top = 16 Width = 520 Height = 430
+        Left = 264 Top = 16 Width = 600 Height = 430
         Columns = <
-          item Caption = '#' Width = 40 end
-          item Caption = #1042#1088#1077#1084#1103 Width = 120 end
-          item Caption = #1058#1077#1082#1089#1090 Width = 180 end
-          item Caption = #1054#1090' '#1082#1086#1075#1086 Width = 100 end
-          item Caption = 'Id' Width = 100 end>
+          item Caption = '#' Width = 32 end
+          item Caption = #1058#1080#1087 Width = 90 end
+          item Caption = #1042#1088#1077#1084#1103 Width = 110 end
+          item Caption = #1058#1077#1082#1089#1090 Width = 150 end
+          item Caption = #1063#1072#1090 Width = 80 end
+          item Caption = 'Id' Width = 90 end
+          item Caption = #1057#1086#1073#1099#1090#1080#1077 Width = 150 end>
         ReadOnly = True
         RowSelect = True
         ViewStyle = vsReport
