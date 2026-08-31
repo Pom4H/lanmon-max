@@ -390,6 +390,17 @@ static bool Bool(const JsonValue & o,const char * key,bool def=false)
     return (v&&v->Type==jtBool)?v->BoolValue:def;
 }
 
+//Скопировать объект User из update/message в нормализованный MAX_MESSAGE.
+static void ReadUser(const JsonValue * user,MAX_MESSAGE & message)
+{
+    if(!user || user->Type!=jtObject)return;
+    message.UserId=Int64(*user,"user_id");
+    message.FirstName=Str(*user,"first_name");
+    message.LastName=Str(*user,"last_name");
+    message.UserName=Str(*user,"username");
+    message.SenderIsBot=Bool(*user,"is_bot");
+}
+
 }
 //---------------------------------------------------------------------------
 //DTO lifecycle
@@ -521,8 +532,9 @@ MAX_TEXT MaxBuildUpdatesUrl(bool hasMarker,max_int64 marker,int timeoutSeconds,i
     url+="&limit=";
     url+=IntToText(limit);
     if(hasMarker){url+="&marker=";url+=MaxInt64ToString(marker);}
-    //LanMon сейчас обрабатывает входящие сообщения message_created
-    url+="&types=message_created";
+    //Telegram обрабатывал обычные сообщения, приглашение бота и новых участников.
+    //В MAX им соответствуют message_created, bot_added и user_added.
+    url+="&types=message_created,bot_added,user_added";
     return url;
 }
 
@@ -564,7 +576,7 @@ bool MaxParseBotInfo(const MAX_TEXT & json,MAX_BOT_INFO & info,MAX_TEXT & error)
     return true;
 }
 
-//Получение сообщений из JSON ответа GET /updates
+//Получение сообщений и Telegram-equivalent membership events из GET /updates
 bool MaxParseUpdates(const MAX_TEXT & json,MAX_UPDATES & updates,MAX_TEXT & error)
 {
     JsonValue root;JsonParser p(json);updates.Clear();
@@ -578,23 +590,47 @@ bool MaxParseUpdates(const MAX_TEXT & json,MAX_UPDATES & updates,MAX_TEXT & erro
     {
         const JsonValue & u=*(const JsonValue *)arr->ArrayValue.Get(i);
         if(u.Type!=jtObject)continue;
-        if(Str(u,"update_type")!="message_created")continue;
-        const JsonValue * msg=Field(u,"message");if(!msg || msg->Type!=jtObject)continue;
-        MAX_MESSAGE m;m.UpdateType="message_created";m.UpdateTimestamp=Int64(u,"timestamp");
-        m.MessageTimestamp=Int64(*msg,"timestamp");
-        const JsonValue * sender=Field(*msg,"sender");
-        if(sender && sender->Type==jtObject)
+        MAX_TEXT updateType=Str(u,"update_type");
+        MAX_MESSAGE m;
+        m.UpdateType=updateType;
+        m.UpdateTimestamp=Int64(u,"timestamp");
+
+        if(updateType=="message_created")
         {
-            m.UserId=Int64(*sender,"user_id");m.FirstName=Str(*sender,"first_name");
-            m.LastName=Str(*sender,"last_name");m.UserName=Str(*sender,"username");m.SenderIsBot=Bool(*sender,"is_bot");
+            const JsonValue * msg=Field(u,"message");
+            if(!msg || msg->Type!=jtObject)continue;
+            m.MessageTimestamp=Int64(*msg,"timestamp");
+            ReadUser(Field(*msg,"sender"),m);
+            const JsonValue * recipient=Field(*msg,"recipient");
+            if(recipient && recipient->Type==jtObject)
+            {
+                m.ChatId=Int64(*recipient,"chat_id");
+                m.ChatType=Str(*recipient,"chat_type");
+            }
+            const JsonValue * body=Field(*msg,"body");
+            if(body && body->Type==jtObject)
+            {
+                m.MessageId=Str(*body,"mid");
+                m.Text=Str(*body,"text");
+            }
         }
-        const JsonValue * recipient=Field(*msg,"recipient");
-        if(recipient && recipient->Type==jtObject)
+        else if(updateType=="bot_added" || updateType=="user_added")
         {
-            m.ChatId=Int64(*recipient,"chat_id");m.ChatType=Str(*recipient,"chat_type");
+            //Эти события заменяют Telegram my_chat_member/new_chat_participant.
+            //Оба содержат chat_id и User; у bot_added User — добавивший бота,
+            //у user_added — новый участник. Для UI этого достаточно, чтобы
+            //показать событие и добавить адресат chat_id в список LanMon.
+            m.ChatId=Int64(u,"chat_id");
+            m.ChatType=Bool(u,"is_channel",false)?"channel":"chat";
+            m.MessageTimestamp=m.UpdateTimestamp;
+            ReadUser(Field(u,"user"),m);
+            if(!m.ChatId)continue;
         }
-        const JsonValue * body=Field(*msg,"body");
-        if(body && body->Type==jtObject){m.MessageId=Str(*body,"mid");m.Text=Str(*body,"text");}
+        else
+        {
+            //Остальные MAX events пока не имеют Telegram-usecase в LanMon 4.
+            continue;
+        }
         updates.Messages.push_back(m);
     }
     return true;
